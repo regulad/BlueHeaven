@@ -1,4 +1,4 @@
-# [📱📲: BlueHeaven: Bluetooth Low Energy-based mesh network for general-purpose traffic]
+# [📱📲: BlueHeaven: Bluetooth Low Energy-based mesh network for general-purpose traffic](https://github.com/regulad/BlueHeaven)
 
 ## Design Overview
 
