@@ -18,6 +18,12 @@ import xyz.regulad.blueheaven.ui.navigation.BlueHeavenNavHost
 class MainActivity : ComponentActivity() {
     private val blueHeavenViewModel: BlueHeavenViewModel by viewModels()
 
+    override fun onDestroy() {
+        super.onDestroy()
+        val serviceIntent = Intent(this, BlueHeavenService::class.java)
+        stopService(serviceIntent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 

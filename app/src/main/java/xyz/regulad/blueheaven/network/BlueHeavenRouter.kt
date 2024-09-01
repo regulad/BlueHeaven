@@ -607,14 +607,12 @@ class BlueHeavenRouter(
         var thisPermitReleased = false
 
         suspend fun doConnectionCleanup(view: BLEPeripheralView?) {
-            fun releasePermitIfNotReleased() {
-                if (!thisPermitReleased) {
-                    thisPermitReleased = true
-                    Log.v(TAG, "Releasing permit for client connection to ${device.address}")
-                    clientConnectionSemaphore.release()
-                } else {
-                    Log.w(TAG, "Permit was already released, but something tried to release it again")
-                }
+            if (!thisPermitReleased) {
+                thisPermitReleased = true
+                Log.v(TAG, "Releasing permit for client connection to ${device.address}")
+                clientConnectionSemaphore.release()
+            } else {
+                Log.w(TAG, "Permit was already released, but something tried to release it again")
             }
 
             gattClientConnections.remove(device.address)

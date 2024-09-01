@@ -139,25 +139,29 @@ class BLEPeripheralView private constructor(
      */
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     // in our design, this gets called twice most of the time so we need to lock
-    suspend fun disconnect() {
+    suspend fun disconnect(thisGatt: BluetoothGatt? = null) {
         if (!didDisconnect.compareAndSet(false, true)) {
             return
         }
 
         asyncOperationLock.withLock {
             expectingDisconnect.set(true)
-            gatt.disconnect()
             connectionStatusReceivedChannel.receive()
+            if (::gatt.isInitialized) { // edge cases where we might not have a gatt
+                gatt.disconnect()
+            } else thisGatt?.disconnect()
             return@withLock
         }
     }
 
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    private fun cleanUp() {
-        gatt.close()
+    private fun cleanUp(thisGatt: BluetoothGatt? = null) {
         didDisconnect.set(true)
         expectingDisconnect.set(false)
         callbackCoroutineScope.cancel()
+        if (::gatt.isInitialized) {
+            gatt.close()
+        } else thisGatt?.close()
     }
 
     // bluetooth connections are sort of like IO operations
@@ -208,7 +212,7 @@ class BLEPeripheralView private constructor(
                             Log.w(TAG, "Failed to connect to ${gatt.device.address}")
                             this@BLEPeripheralView.connectionStatusReceivedChannel.send(null)
                             this@BLEPeripheralView.callback.onFinalDisconnection(this@BLEPeripheralView)
-                            this@BLEPeripheralView.cleanUp()
+                            this@BLEPeripheralView.cleanUp(gatt)
                             return@launch
                         }
 
@@ -217,7 +221,7 @@ class BLEPeripheralView private constructor(
                             Log.d(TAG, "Disconnected from ${gatt.device.address} due to peer termination")
                             this@BLEPeripheralView.connectionStatusReceivedChannel.send(null)
                             this@BLEPeripheralView.callback.onFinalDisconnection(this@BLEPeripheralView)
-                            this@BLEPeripheralView.cleanUp()
+                            this@BLEPeripheralView.cleanUp(gatt)
                             return@launch
                         }
 
@@ -225,7 +229,7 @@ class BLEPeripheralView private constructor(
                             // this could only be a hard disconnect; we need to clean up
                             Log.d(TAG, "Disconnected from ${gatt.device.address} and we are not autoconnecting; cleaning up")
                             this@BLEPeripheralView.callback.onFinalDisconnection(this@BLEPeripheralView)
-                            this@BLEPeripheralView.cleanUp()
+                            this@BLEPeripheralView.cleanUp(gatt)
                             return@launch
                         }
 
@@ -242,7 +246,7 @@ class BLEPeripheralView private constructor(
                             // we have not reconnected; we need to clean up
                             Log.d(TAG, "Disconnected from ${gatt.device.address} and we have not reconnected; cleaning up")
                             this@BLEPeripheralView.callback.onFinalDisconnection(this@BLEPeripheralView)
-                            this@BLEPeripheralView.cleanUp()
+                            this@BLEPeripheralView.cleanUp(gatt)
                             return@launch
                         }
                     }

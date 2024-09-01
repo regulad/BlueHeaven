@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import xyz.regulad.blueheaven.BlueHeavenViewModel
 import xyz.regulad.blueheaven.network.NetworkConstants.toStardardLengthHex
+import xyz.regulad.blueheaven.ui.components.LogcatViewer
 import xyz.regulad.blueheaven.ui.components.PublicKeyQRCode
 
 @Composable
@@ -74,6 +75,12 @@ fun InfoScreen(blueHeavenViewModel: BlueHeavenViewModel) {
             style = MaterialTheme.typography.headlineLarge,
             fontWeight = FontWeight.Bold
         )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        LogcatViewer(rows = 20, columns = 80)
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         Text(
             text = "Network Settings",
