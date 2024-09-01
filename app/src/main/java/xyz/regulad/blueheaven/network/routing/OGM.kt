@@ -4,6 +4,7 @@ import xyz.regulad.blueheaven.network.NetworkConstants.toStardardLengthHex
 import java.nio.ByteBuffer
 import java.security.SecureRandom
 
+// we do not use protobuf here because it would add too much overhead for small packets + OGMs are so simple
 data class OGM(
     val nodeId: UInt,
     val nonce: UInt,

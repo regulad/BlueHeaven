@@ -62,3 +62,8 @@ fun Service.isRunning(): Boolean {
     }
     return false
 }
+
+fun <E> Set<E>.pickRandom(): E {
+    val index = Random().nextInt(this.size)
+    return this.elementAt(index)
+}

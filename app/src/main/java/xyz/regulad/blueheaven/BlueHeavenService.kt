@@ -105,7 +105,7 @@ class BlueHeavenService : Service(), NetworkEventCallback {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("BlueHeaven Bluetooth Mesh Network")
+            .setContentTitle("BlueHeaven Mesh")
             .setContentText("Connected to the BlueHeaven network")
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setLargeIcon(

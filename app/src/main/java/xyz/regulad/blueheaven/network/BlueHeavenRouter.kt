@@ -16,7 +16,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
 import xyz.regulad.blueheaven.network.NetworkConstants.PACKET_TRANSMISSION_TIMEOUT_MS
-import xyz.regulad.blueheaven.network.delegate.DelegatedBluetoothGattCallback
+import xyz.regulad.blueheaven.network.delegate.BLEPeripheralView
+import xyz.regulad.blueheaven.network.delegate.BLEPeripheralView.Companion.connectGattSafe
 import xyz.regulad.blueheaven.network.packet.Packet
 import xyz.regulad.blueheaven.network.packet.Packet.Companion.HEADER_SIZE
 import xyz.regulad.blueheaven.network.packet.Packet.Companion.readDestinationNode
@@ -24,15 +25,12 @@ import xyz.regulad.blueheaven.network.packet.UpperPacketTypeByte
 import xyz.regulad.blueheaven.network.routing.OGM
 import xyz.regulad.blueheaven.storage.BlueHeavenDatabase
 import xyz.regulad.blueheaven.util.BLEConst.CCCD_UUID
-import xyz.regulad.blueheaven.util.BleConnectionCompat
+import xyz.regulad.blueheaven.util.Barrier
+import xyz.regulad.blueheaven.util.pickRandom
 import java.nio.ByteBuffer
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 /**
  * BlueHeavenBackend is the main class responsible for managing Bluetooth Low Energy (BLE)
@@ -71,27 +69,20 @@ class BlueHeavenRouter(
         @JvmStatic
         val SERVICE_UUID: ParcelUuid = ParcelUuid.fromString("c3f3967b-a5ad-43a1-b780-cfb81c19c4a5")
 
-        // server -> client (currently unused; have to implement chunked notifications/indications)
-        @JvmStatic
-        val RX_CHARACTERISTIC_UUID: ParcelUuid = ParcelUuid.fromString("53ad16f5-75ff-458c-810d-c16dfb1649a7")
         // client -> server
         @JvmStatic
         val TX_CHARACTERISTIC_UUID: ParcelUuid = ParcelUuid.fromString("433012ec-6ef4-4a8a-ad26-b895bcb4e7b8")
 
-
         // server -> client
         @JvmStatic
         val OGM_RX_CHARACTERISTIC_UUID: ParcelUuid = ParcelUuid.fromString("6f29d215-747e-4a44-aaf0-233ce6513415")
-        // client -> server (currently unused; have to implement chunked notifications/indications)
-        @JvmStatic
-        val OGM_TX_CHARACTERISTIC_UUID: ParcelUuid = ParcelUuid.fromString("955377ec-05a3-43bb-8be0-95e7148b44fd")
 
         @JvmStatic
         val THIS_NODE_ID_CHARACTERISTIC_UUID: ParcelUuid = ParcelUuid.fromString("202c201e-79fd-4c39-a2cb-ee938b2ac70e")
 
         private const val TAG = "BlueHeavenRouter"
-        // TODO: inform user that sometimes connections will be dropped, tell them to try restarting their phone (worked on dev)
-        private const val GATT_CONNECTION_TIMEOUT_MS = 20_000L // 10 seconds
+
+        private const val SETUP_TIMEOUT_MS = 10_000L // 10 seconds // should be pretty quick; the connection is already established
         private const val CLIENT_CONNECTION_TTL_MS = 60_000L * 30 // 30 minutes // to favor new routing pathways, we kill connections that we have made to other nodes
 
         const val OGM_BROADCAST_INTERVAL_MS = 50L // can be arbitrarily low; but it will consume more bandwidth
@@ -102,6 +93,9 @@ class BlueHeavenRouter(
         // if the user has more than 1 pair of headphones or game controllers, they are out of luck TODO: handle this case
         private const val MAX_GATT_SERVER_CONNECTIONS = 3
         private const val MAX_GATT_CLIENT_CONNECTIONS = 3
+
+        // to favor connections to nodes that don't include nodes we already have access to, we wait for a couple of scans before we connect, then we connect to the best node (the one that we don't have access to)
+        private const val REQUIRED_INCOMING_SCANS = 5
     }
 
     /**
@@ -141,7 +135,9 @@ class BlueHeavenRouter(
         gattServer?.close()
         gattServer = null
         // this doesn't wait for the mutex to be released
-        gattClientConnections.values.forEach { it.gatt?.disconnect() }
+        runBlocking {
+            gattClientConnections.values.forEach { it.view.disconnect() }
+        }
         gattClientConnections.clear()
         mainScope.cancel()
         ioScope.cancel()
@@ -470,13 +466,10 @@ class BlueHeavenRouter(
     private val connectionTimeoutHandler = Handler(Looper.getMainLooper())
 
     private data class GattClientConnectionInfo(
-        val gatt: BluetoothGatt?,
-        val device: BluetoothDevice,
-        val writeStatusChannel: Channel<Boolean>,
+        val view: BLEPeripheralView,
         val connectedNodeId: UInt?, // it might not be sent
         // node id, last seen time
         val lastTimeNodeUpdated: ConcurrentHashMap<UInt, Long> = ConcurrentHashMap(),
-        val usingLock: Mutex = Mutex(),
     )
 
     /**
@@ -516,9 +509,8 @@ class BlueHeavenRouter(
                 val connectionsToTry = getBestConnectionsForNode(destinationNodeId)
                 for (connection in connectionsToTry) {
                     try {
-                        connection.usingLock.withLock {
-                            block(connection)
-                        }
+                        block(connection)
+                        return@withTimeout
                     } catch (e: IllegalStateException) {
                         // we failed to write to this connection; try the next one
                         continue
@@ -529,31 +521,60 @@ class BlueHeavenRouter(
         }
     }
 
-    private val currentAttemptingConnections: MutableSet<String> = Collections.synchronizedSet(mutableSetOf())
+    private val scanBarrier = Barrier<Pair<BluetoothDevice, UInt?>>(REQUIRED_INCOMING_SCANS)
+    private val scanHandlingLock = Mutex()
 
     // explicitly marked as public to demonstrate that this is passed as a parameter to the BlueHeavenBLEScanner
     public fun handleIncomingAdvertisement(device: BluetoothDevice, connectedNodeId: UInt?) {
-        if (device.address in gattClientConnections.keys) {
-            Log.d(TAG, "Ignoring advertisement from connected device ${device.address}; already connected")
-            return
-        }
-
-        if (!currentAttemptingConnections.add(device.address)) {
-            Log.d(TAG, "Ignoring advertisement from device ${device.address} because we are already attempting to connect")
-            return
-        }
-
-        // note that we do NOT check the tag here; it could be spoofed
-
         mainScope.launch {
-            attemptNewDeviceConnectionAsClient(device, connectedNodeId)
+            // the barrier imposes a lock; but its fine because we will only ever be trying to connect to one device at a time anyway thanks to android not letting their devices be autoconnected
+            scanBarrier.collect(device to connectedNodeId) { devices ->
+                Log.d(TAG, "Collected ${devices.size} devices, attempting to connect to the best one")
+
+                val deviceToConnectTo: Pair<BluetoothDevice, UInt?>
+                scanHandlingLock.withLock {
+                    // first thing: create a new set with devices that only appear once
+                    val deviceSet = devices.asSequence().map { it.first.address }.toSet().map { it to devices.find { d -> d.first.address == it }!!.second }.map { devices.find { d -> d.first.address == it.first }!! }.toSet()
+                    val devicesWithKnownNodeIds = deviceSet.filter { it.second != null }
+
+                    if (deviceSet.size == 1 || devicesWithKnownNodeIds.isEmpty()) {
+                        // no room to choose; just pick the first one
+                        deviceToConnectTo = deviceSet.first()
+                        return@withLock
+                    }
+
+                    // we have multiple devices to choose from; we need to pick the best one
+                    // first: are any of the nodes not in the reachable node ids?
+                    val unreachableNodes = devicesWithKnownNodeIds.filter { it.second!! !in getReachableNodeIDs() }
+                    if (unreachableNodes.isNotEmpty()) {
+                        // we have a node that we can connect to that we don't have access to, prefer that one
+                        deviceToConnectTo = unreachableNodes.first()
+                        return@withLock
+                    }
+
+                    // second: are any of the nodes not in the directly connected node ids?
+                    // note: this is an edge case and can only be hit in networks that are so dense that the same node id appears multiple times; or if an attacker is trying to confuse us
+                    val nonDirectlyConnectedNodes = devicesWithKnownNodeIds.filter { it.second!! !in getDirectlyConnectedNodeIDs() }
+                    if (nonDirectlyConnectedNodes.isNotEmpty()) {
+                        // we have a node that we can connect to that we don't have access to, prefer that one
+                        deviceToConnectTo = nonDirectlyConnectedNodes.first()
+                        return@withLock
+                    }
+
+                    // we have done everything we can to filter out the best node; we'll just pick a random one
+                    deviceToConnectTo = deviceSet.pickRandom()
+                }
+
+                val (newDeviceAddress, newDeviceConnectedNodeId) = deviceToConnectTo
+
+                try {
+                    attemptNewDeviceConnectionAsClient(newDeviceAddress, newDeviceConnectedNodeId)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to connect to device ${device.address}: ${e.message}")
+                }
+            }
         }
     }
-
-    // helper
-    private val bleConnectionCompatLayer = BleConnectionCompat(context)
-
-    private val nonAutoConnectMutex = Mutex()
 
     /**
      * Attempts to establish a client connection to a device that has sent an advertisement.
@@ -567,32 +588,39 @@ class BlueHeavenRouter(
     @SuppressLint("MissingPermission")
     private suspend fun attemptNewDeviceConnectionAsClient(device: BluetoothDevice, connectedNodeId: UInt?) {
         // https://medium.com/@martijn.van.welie/making-android-ble-work-part-2-47a3cdaade07#:~:text=Autoconnect%20only%20works%20for%20cached%20or%20bonded%20devices!
-        val deviceInCache = device.type != BluetoothDevice.DEVICE_TYPE_UNKNOWN
-        if (!deviceInCache) {
-            // not yet in bluetooth cache
-            Log.w(TAG, "Handing an incoming advertisement before it has been placed in the bluetooth cache; we can't autoconnect")
-        }
+
         // most of our devices won't be in the cache because they aren't discoverable; this is for future utilization
+
+        if (device.address in gattClientConnections.keys) {
+            Log.d(TAG, "Ignoring connection to ${device.address} because we are already connected")
+            return
+        }
 
         Log.d(TAG, "Attempting to connect to ${device.address}")
 
         if (!clientConnectionSemaphore.tryAcquire()) {
             Log.d(TAG, "Client connection limit reached, not connecting to ${device.address}")
-            currentAttemptingConnections.remove(device.address)
             return
         }
 
         // keep track if we have released the permit
         var thisPermitReleased = false
 
-        fun releasePermitIfNotReleased() {
-            if (!thisPermitReleased) {
-                thisPermitReleased = true
-                Log.v(TAG, "Releasing permit for client connection to ${device.address}")
-                clientConnectionSemaphore.release()
-            } else {
-                Log.w(TAG, "Permit was already released, but something tried to release it again")
+        suspend fun doConnectionCleanup(view: BLEPeripheralView?) {
+            fun releasePermitIfNotReleased() {
+                if (!thisPermitReleased) {
+                    thisPermitReleased = true
+                    Log.v(TAG, "Releasing permit for client connection to ${device.address}")
+                    clientConnectionSemaphore.release()
+                } else {
+                    Log.w(TAG, "Permit was already released, but something tried to release it again")
+                }
             }
+
+            gattClientConnections.remove(device.address)
+            enqueueEvictionOgm() // we don't need to evict our own routes; that's handled by r/seremoving the gattClientConnection
+            networkEventCallback.onTopologyChanged() // a disconnecting device may have been a bridge; we need to reevaluate the topology
+            view?.disconnect()
         }
 
         // at this point, we are ready to try connecting
@@ -600,226 +628,76 @@ class BlueHeavenRouter(
         delay(100)
 
         try {
-            withTimeout(GATT_CONNECTION_TIMEOUT_MS) {
-                if (deviceInCache) {
-                    // we can try to autoconnect!
-                    doLowLevelConnection({ releasePermitIfNotReleased() }, device, connectedNodeId, true)
-                } else {
-                    // we can't autoconnect; we need to manually connect
-                    nonAutoConnectMutex.withLock {
-                        doLowLevelConnection({ releasePermitIfNotReleased() }, device, connectedNodeId, false)
-                    }
-                }
-            }
-            Log.d(TAG, "Connected to ${device.address} as a client successfully")
-        } catch (e: Exception) {
-            // our flow was abnormal so we need to release the permit
-            Log.w(TAG, "Failed to connect to ${device.address} as a client: ${e.message}")
-        } finally {
-            currentAttemptingConnections.remove(device.address)
-        }
-    }
+            val setupFinishedChannel = Channel<Unit>(1)
+            device.connectGattSafe(context, true, object : BLEPeripheralView.BLEPeripheralViewCallback() {
+                override suspend fun onFirstConnection(view: BLEPeripheralView) {
+                    // wait a little, we won't be locked here
+                    Log.d(TAG, "Connected to ${device.address} as a client")
+                    delay(100) // wait before discovering services; helps with stability
 
-    private suspend fun doLowLevelConnection(
-        releasePermitIfNotReleased: () -> Unit,
-        device: BluetoothDevice,
-        connectedNodeId: UInt?,
-        canAutoConnect: Boolean
-    ) {
-        suspendCancellableCoroutine { continuation ->
-            val writeQueue = Channel<Boolean>(1)
-
-            val firstConnectionReceived = AtomicBoolean(false)
-            val lastConnectionAtTime = AtomicLong(-1L)
-
-            // the connection to the GATT server is easily the most finicky part of the whole system
-
-            val timeoutRunningScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-
-            fun doConnectionCleanup(gatt: BluetoothGatt, wasEstablished: Boolean) {
-                releasePermitIfNotReleased()
-                if (wasEstablished) {
-                    // this connection was established, so we need to clean up a little more
-                    gattClientConnections.remove(gatt.device.address)
-                    enqueueEvictionOgm() // we don't need to evict our own routes; that's handled by r/seremoving the gattClientConnection
-                    networkEventCallback.onTopologyChanged() // a disconnecting device may have been a bridge; we need to reevaluate the topology
-                }
-                timeoutRunningScope.cancel()
-                gatt.close()
-            }
-
-            val gattCallback = DelegatedBluetoothGattCallback(object : BluetoothGattCallback() {
-                // ==== handshaking ====
-
-                override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-                    val bondState = gatt.device.bondState
-
-                    if (bondState != BluetoothDevice.BOND_NONE) {
-                        Log.w(
-                            TAG,
-                            "Bonded device ${gatt.device.address} is trying to connect; we should not be bonding"
-                        )
-                    }
-
-                    when (newState) {
-                        BluetoothProfile.STATE_CONNECTED -> {
-                            lastConnectionAtTime.set(System.currentTimeMillis())
-
-                            if (!firstConnectionReceived.compareAndSet(false, true)) {
-                                Log.w(
-                                    TAG,
-                                    "Connected to ${gatt.device.address} but we already have a connection; simply negotiating a reconnect"
-                                )
-                                return
-                            }
-
-                            Log.d(TAG, "Connected to ${gatt.device.address}")
-                            mainScope.launch {
-                                delay(100) // wait a little before discovering services; possible stability bump
-                                Log.d(TAG, "Discovering services for ${gatt.device.address}")
-                                gatt.discoverServices()
-                            }
-                        }
-
-                        BluetoothProfile.STATE_DISCONNECTED -> {
-                            val wasFirstConnection = !firstConnectionReceived.get()
-
-                            // if we didn't first connect at least once; there is something wrong over the air and we should bail
-                            if (wasFirstConnection) {
-                                if (continuation.isActive) {
-                                    continuation.resumeWithException(IllegalStateException("Disconnected from ${gatt.device.address} before connection was fully established"))
-                                }
-                                doConnectionCleanup(gatt, false)
-                                return
-                            }
-
-                            if (status == BluetoothGatt.GATT_SUCCESS || status == 19) { // GATT_CONN_TERMINATE_PEER_USER
-                                // this was a deliberate disconnect; perhaps due to a timeout?
-                                Log.d(TAG, "Disconnected from ${gatt.device.address} due to peer termination")
-                                    doConnectionCleanup(gatt, true)
-                                return
-                            }
-
-                            if (!canAutoConnect) {
-                                // this could only be a hard disconnect; we need to clean up
-                                Log.d(TAG, "Disconnected from ${gatt.device.address} due to hard disconnect")
-                                doConnectionCleanup(gatt, true)
-                                return
-                            }
-
-                            // by now, its likely that the error will be 133; we need to wait to see if a reconnection occurs
-
-                            // do NOT call close here; it will recurse endlessly
-                            Log.d(TAG, "Disconnected from ${gatt.device.address}; waiting to see if they reconnect")
-                            // we need to start a disconnection timeout to see if they will reconnect
-
-                            val timeAtDisconnect = System.currentTimeMillis()
-                            timeoutRunningScope.launch {
-                                delay(GATT_CONNECTION_TIMEOUT_MS)
-                                // if the timeout has expired and the device is still tracked (isActive is true; would be false if the scope was cancelled)
-                                if (lastConnectionAtTime.get() < timeAtDisconnect && isActive) {
-                                    // we have not reconnected; we need to clean up
-                                    doConnectionCleanup(gatt, true)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-                    if (status != BluetoothGatt.GATT_SUCCESS) {
-                        Log.e(TAG, "Service discovery failed for ${gatt.device.address}")
-                        gatt.disconnect() // call disconnect here; not close
+                    Log.d(TAG, "Discovering services for ${device.address}")
+                    val services: List<BluetoothGattService>
+                    try {
+                        services = view.discoverServices()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to discover services for ${device.address}: ${e.message}")
+                        doConnectionCleanup(view)
                         return
                     }
 
-                    Log.d(TAG, "Services discovered for ${gatt.device.address}")
+                    Log.d(TAG, "Services discovered for ${device.address}")
+                    val bhService = services.find { it.uuid == SERVICE_UUID.uuid }
+                    if (bhService == null) {
+                        Log.w(TAG, "Service not found for ${device.address}")
+                        doConnectionCleanup(view)
+                        return
+                    }
 
-                    // subscribe to notifications from the OGM characteristic
-                    val ogmCharacteristic =
-                        gatt.getService(SERVICE_UUID.uuid)
-                            ?.getCharacteristic(OGM_RX_CHARACTERISTIC_UUID.uuid)
-
+                    val ogmCharacteristic = bhService.getCharacteristic(OGM_RX_CHARACTERISTIC_UUID.uuid)
                     if (ogmCharacteristic == null) {
-                        Log.w(TAG, "OGM characteristic not found for ${gatt.device.address}")
-                        gatt.disconnect() // call disconnect here; not close
+                        Log.w(TAG, "OGM characteristic not found for ${device.address}")
+                        doConnectionCleanup(view)
                         return
                     }
 
-                    gatt.setCharacteristicNotification(ogmCharacteristic, true)
-                    bleConnectionCompatLayer.setNotify(gatt, ogmCharacteristic, true)
+                    view.subscribeToCharacteristic(ogmCharacteristic, true)
 
-                    if (!continuation.isActive) {
-                        Log.e(
-                            TAG,
-                            "Continuation was not active when services were discovered for ${gatt.device.address}! Closing to prevent untracked resources"
-                        )
-                        gatt.disconnect() // call disconnect here; not close
-                        return
-                    }
-
-                    continuation.resume(Unit)
-                    scheduleConnectionTimeout(gatt.device.address)
+                    scheduleConnectionTimeout(device.address)
 
                     // finally add the device to the list of connected devices
-                    gattClientConnections[gatt.device.address] =
-                        GattClientConnectionInfo(gatt, gatt.device, writeQueue, connectedNodeId)
+                    gattClientConnections[device.address] =
+                        GattClientConnectionInfo(view, connectedNodeId)
+
+                    setupFinishedChannel.send(Unit)
                 }
 
-                // ==== data handling ====
-
-                @Deprecated("Deprecated in Java") // this is for older android verisons, newer versions call the other method directly
-                override fun onCharacteristicChanged(
-                    gatt: BluetoothGatt,
-                    characteristic: BluetoothGattCharacteristic
-                ) {
-                    val value = characteristic.value // get the value asap before it can change
-                    onCharacteristicChanged(gatt, characteristic, value)
+                override suspend fun onFinalDisconnection(view: BLEPeripheralView) {
+                    Log.d(TAG, "Disconnected from ${device.address} as a client")
+                    doConnectionCleanup(view)
                 }
 
-                override fun onCharacteristicChanged(
-                    gatt: BluetoothGatt,
+                override suspend fun onCharacteristicChanged(
+                    view: BLEPeripheralView,
                     characteristic: BluetoothGattCharacteristic,
                     value: ByteArray
                 ) {
                     if (characteristic.uuid == OGM_RX_CHARACTERISTIC_UUID.uuid) {
                         val ogm = OGM.fromBytes(value)
-                        val goodOgm = updateRoutingInfo(gatt.device.address, ogm)
+                        val goodOgm = updateRoutingInfo(device.address, ogm)
                         if (goodOgm) {
                             enqueueOGM(ogm) // we'll need to forward this
                         }
                     }
                 }
-
-                override fun onCharacteristicWrite(
-                    gatt: BluetoothGatt?,
-                    characteristic: BluetoothGattCharacteristic?,
-                    status: Int
-                ) {
-                    // we will only ever have one write in flight at a time
-                    writeQueue.trySend(status == BluetoothGatt.GATT_SUCCESS)
-                }
-            }, this@BlueHeavenRouter.mainScope);
-
-            // https://medium.com/@martijn.van.welie/making-android-ble-work-part-2-47a3cdaade07#:~:text=Autoconnect%20=%20true,device%20whenever%20it%20becomes%20available.
-            // using the connection compat helps always use BLE and never encounter any race conditions
-            val gatt = bleConnectionCompatLayer.connectGatt(
-                device,
-                canAutoConnect, // do autoconnect = true so we can issue many connections at once and let the system handle it
-                gattCallback,
-            )
-
-            if (gatt == null) {
-                releasePermitIfNotReleased() // it won't have been released here; in any other case it will be handled on disconnect
-                throw IllegalStateException("Unknown error; likely PHY")
+            })
+            withTimeout(SETUP_TIMEOUT_MS) {
+                setupFinishedChannel.receive()
             }
-
-            continuation.invokeOnCancellation {
-                // bail out if the connection has yet to be established
-                Log.w(TAG, "Connection to ${device.address} as a client was cancelled; abandoning")
-                // something went terribly wrong
-                doConnectionCleanup(gatt, false) // we are closing without disconnecting == bad!
-            }
+            Log.d(TAG, "Connected to ${device.address} as a client successfully")
+        } catch (e: Exception) {
+            // our flow was abnormal so we need to release the permit
+            Log.w(TAG, "Failed to connect to ${device.address} as a client: ${e.message}")
+            doConnectionCleanup(null)
         }
     }
 
@@ -835,12 +713,12 @@ class BlueHeavenRouter(
                 // this will only be called if the connection is still active
                 // TODO: an attacker can rapidly connect and disconnect to add more of these to our handler until we run out of memory
                 ioScope.launch {
-                    connectionInfo.usingLock.withLock {
-                        connectionInfo.gatt?.disconnect()
-                    }
+                    connectionInfo.view.disconnect()
+                    // semaphore release is handled by the disconnect callback
                 }
             }
         }, CLIENT_CONNECTION_TTL_MS)
+        Log.d(TAG, "Scheduled connection timeout for $deviceAddress")
     }
 
     /**
@@ -916,38 +794,12 @@ class BlueHeavenRouter(
         }
 
         withBestConnection(destinationNodeId) {
-            val gatt = this.gatt
-                ?: throw IllegalStateException("No suitable connection for destination node $destinationNodeId")
-            val characteristic = gatt.getService(SERVICE_UUID.uuid)?.getCharacteristic(TX_CHARACTERISTIC_UUID.uuid)
+            val characteristic = this.view.getService(SERVICE_UUID.uuid)?.getCharacteristic(TX_CHARACTERISTIC_UUID.uuid)
                 ?: throw IllegalStateException("No RX characteristic found for destination node $destinationNodeId")
 
             val packetBytes = incomingPacketBuffer.array()
 
-            val writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-
-            val status: Boolean
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                status =
-                    gatt.writeCharacteristic(characteristic, packetBytes, writeType) == BluetoothStatusCodes.SUCCESS
-            } else {
-                characteristic.value = packetBytes
-                characteristic.writeType = writeType
-                status = gatt.writeCharacteristic(characteristic)
-            }
-
-            if (!status) {
-                Log.e(TAG, "Failed to write packet to ${gatt.device.address}")
-                throw IllegalStateException("Failed to write packet to ${gatt.device.address}")
-            }
-
-            // wait for the write callback to be recieved
-            val writeCallbackStatus = this.writeStatusChannel.receive()
-            if (!writeCallbackStatus) {
-                Log.e(TAG, "Failed to write packet to ${gatt.device.address}")
-                throw IllegalStateException("Failed to write packet to ${gatt.device.address}")
-            }
-
-            // otherwise, we are done!
+            this.view.writeCharacteristic(characteristic, packetBytes)
         }
     }
 }
@@ -968,12 +820,12 @@ abstract class INetworkEventCallback : NetworkEventCallback {
      *
      * @return The response packet, if any. This should only be a direct response as an alternative to an ACK, like a handshake in a socket connection.
      */
-    open override fun onPacketReceived(packet: Packet): Packet? = null
+    override fun onPacketReceived(packet: Packet): Packet? = null
 
     /**
      * Called when the network topology changes, meaning new nodes might be reachable or unreachable. See [BlueHeavenRouter.getReachableNodeIDs] and [BlueHeavenRouter.getDirectlyConnectedNodeIDs].
      * There is no guarantee that this method will be called immediately after a topology change; nor that the topology has actually changed.
      * This method is not called on the main thread; make sure your implementation is thread-safe.
      */
-    open override fun onTopologyChanged() = Unit
+    override fun onTopologyChanged() = Unit
 }

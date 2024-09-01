@@ -28,6 +28,7 @@ import java.util.*
  * @property sourceServiceNumber The service number (analogous to a port) on the source node.
  * @property data The actual payload of the packet.
  */
+// we do not use protobuf here because it would add too much overhead for small packets
 data class Packet(
     val packetType: UByte, /* UpperPacketTypeByte or custom */
     val packetNonce: ULong,
