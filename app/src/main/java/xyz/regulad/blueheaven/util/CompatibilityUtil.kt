@@ -1,5 +1,8 @@
 package xyz.regulad.blueheaven.util
 
+import android.app.ActivityManager
+import android.app.Service
+import android.content.Context
 import android.os.Build
 import java.nio.ByteBuffer
 import java.util.*
@@ -48,4 +51,14 @@ fun UUID.asBytes(): ByteArray {
     b.putLong(mostSignificantBits)
     b.putLong(leastSignificantBits)
     return b.array()
+}
+
+fun Service.isRunning(): Boolean {
+    val manager = this.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    for (service in manager.getRunningServices(Integer.MAX_VALUE)) { // as of android O, only returns true for our own services, which is fine
+        if (this::class.java.name == service.service.className) {
+            return true
+        }
+    }
+    return false
 }

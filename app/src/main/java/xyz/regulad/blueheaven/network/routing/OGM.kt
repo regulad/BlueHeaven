@@ -38,6 +38,10 @@ data class OGM(
         }
     }
 
+    fun isEvict(): Boolean {
+        return nodeId == 0xFFFFFFFFu
+    }
+
     fun toBytes(): ByteArray {
         val buffer = ByteBuffer.allocate(8)
         buffer.putInt(nodeId.toInt())

@@ -17,8 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
-import xyz.regulad.blueheaven.GlobalStateViewModel
-import xyz.regulad.blueheaven.network.BlueHeavenFrontend
+import xyz.regulad.blueheaven.BlueHeavenViewModel
 import xyz.regulad.blueheaven.network.NetworkConstants.RUNTIME_REQUIRED_BLUETOOTH_PERMISSIONS
 import xyz.regulad.blueheaven.network.NetworkConstants.canOpenBluetooth
 import xyz.regulad.blueheaven.network.NetworkConstants.hasBluetoothHardwareSupport
@@ -26,7 +25,7 @@ import xyz.regulad.blueheaven.network.NetworkConstants.hasBluetoothHardwareSuppo
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun BluetoothPermissionPromptScreen(
-    globalStateViewModel: GlobalStateViewModel,
+    blueHeavenViewModel: BlueHeavenViewModel,
     navController: NavController,
     nextScreen: String
 ) {
@@ -34,8 +33,6 @@ fun BluetoothPermissionPromptScreen(
 
     val permissionState =
         rememberMultiplePermissionsState(permissions = RUNTIME_REQUIRED_BLUETOOTH_PERMISSIONS.toList())
-
-    val globalState = globalStateViewModel.state.value
 
     LaunchedEffect(permissionState.allPermissionsGranted) {
         val hasHardwareSupport = hasBluetoothHardwareSupport(context)
@@ -47,10 +44,9 @@ fun BluetoothPermissionPromptScreen(
 
         val hasBluetoothPermission = canOpenBluetooth(context)
         if (hasBluetoothPermission) {
-            if (globalState.networkAdapter == null && globalState.database != null && globalState.preferences != null) {
-                val networkAdapter = BlueHeavenFrontend(context, globalState.database, globalState.preferences)
-                globalStateViewModel.updateNetworkAdapter(networkAdapter)
-            }
+            // if the user has already granted permission, the service will be null and will start itself
+            // otherwise, we will start it here
+            blueHeavenViewModel.getFrontend()?.startBluetooth()
 
             navController.navigate(nextScreen)
         }

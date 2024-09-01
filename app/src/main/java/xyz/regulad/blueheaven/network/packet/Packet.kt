@@ -314,4 +314,8 @@ data class Packet(
         result = 31 * result + sourceServiceNumber.hashCode()
         return result
     }
+
+    fun isBroadcast(): Boolean {
+        return destinationNode == 0xFFFFFFFFu
+    }
 }

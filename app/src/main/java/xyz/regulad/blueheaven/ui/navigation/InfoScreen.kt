@@ -1,40 +1,65 @@
 package xyz.regulad.blueheaven.ui.navigation
 
+import android.view.WindowManager
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import xyz.regulad.blueheaven.GlobalState
+import xyz.regulad.blueheaven.BlueHeavenViewModel
 import xyz.regulad.blueheaven.network.NetworkConstants.toStardardLengthHex
+import xyz.regulad.blueheaven.ui.components.PublicKeyQRCode
 
 @Composable
-fun InfoScreen(globalState: GlobalState) {
+fun KeepScreenOn() {
+    val currentView = LocalView.current
+    DisposableEffect(Unit) {
+        currentView.keepScreenOn = true
+        onDispose {
+            currentView.keepScreenOn = false
+        }
+    }
+}
+
+@Composable
+fun InfoScreen(blueHeavenViewModel: BlueHeavenViewModel) {
+    // screen on for debug
+    KeepScreenOn()
+
     var reachableNodes by remember {
         mutableStateOf(
-            globalState.networkAdapter?.backend?.getReachableNodes() ?: emptySet()
+            blueHeavenViewModel.getRouter()?.getReachableNodeIDs() ?: emptySet()
         )
     }
     var directConnections by remember {
         mutableStateOf(
-            globalState.networkAdapter?.backend?.getDirectConnections() ?: emptySet()
+            blueHeavenViewModel.getRouter()?.getDirectlyConnectedNodeIDs() ?: emptySet()
         )
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(blueHeavenViewModel.getFrontend()) {
+        val frontend = blueHeavenViewModel.getFrontend()
+            ?: return@DisposableEffect onDispose {
+                // nothing to do; frontend doesn't exist yet
+            }
+
         val listener = fun() {
-            reachableNodes = globalState.networkAdapter?.backend?.getReachableNodes() ?: emptySet()
-            directConnections = globalState.networkAdapter?.backend?.getDirectConnections() ?: emptySet()
+            reachableNodes = blueHeavenViewModel.getRouter()?.getReachableNodeIDs() ?: emptySet()
+            directConnections = blueHeavenViewModel.getRouter()?.getDirectlyConnectedNodeIDs() ?: emptySet()
         }
 
-        globalState.networkAdapter?.addTopologyChangeListener(listener)
+        frontend.addTopologyChangeListener(listener)
 
         onDispose {
-            globalState.networkAdapter?.removeTopologyChangeListener(listener)
+            frontend.removeTopologyChangeListener(listener)
         }
     }
 
@@ -45,6 +70,100 @@ fun InfoScreen(globalState: GlobalState) {
             .padding(16.dp)
     ) {
         Text(
+            text = "BlueHeaven Debug",
+            style = MaterialTheme.typography.headlineLarge,
+            fontWeight = FontWeight.Bold
+        )
+
+        Text(
+            text = "Network Settings",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // router
+        var isServerRunning by remember {
+            mutableStateOf(blueHeavenViewModel.getRouter()?.isServerRunning() ?: true)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Server",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Switch(
+                checked = isServerRunning,
+                onCheckedChange = {
+                    if (it) {
+                        blueHeavenViewModel.getRouter()?.start()
+                    } else {
+                        blueHeavenViewModel.getRouter()?.close()
+                    }
+                    isServerRunning = blueHeavenViewModel.getRouter()?.isServerRunning() ?: true
+                }
+            )
+        }
+
+        // advertiser
+        var isAdvertising by remember {
+            mutableStateOf(blueHeavenViewModel.getAdvertiser()?.isAdvertising() ?: true)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Advertiser",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Switch(
+                checked = isAdvertising,
+                onCheckedChange = {
+                    if (it) {
+                        blueHeavenViewModel.getAdvertiser()?.start()
+                    } else {
+                        blueHeavenViewModel.getAdvertiser()?.close()
+                    }
+                    isAdvertising = blueHeavenViewModel.getAdvertiser()?.isAdvertising() ?: true
+                },
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // scanner
+        var isScanning by remember {
+            mutableStateOf(blueHeavenViewModel.getScanner()?.isScanning() ?: true)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Scanner",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Switch(
+                checked = isScanning,
+                onCheckedChange = {
+                    if (it) {
+                        blueHeavenViewModel.getScanner()?.start()
+                    } else {
+                        blueHeavenViewModel.getScanner()?.close()
+                    }
+                    isScanning = blueHeavenViewModel.getScanner()?.isScanning() ?: true
+                }
+            )
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
             text = "Node Information",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold
@@ -52,16 +171,23 @@ fun InfoScreen(globalState: GlobalState) {
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Node ID: ${globalState.preferences?.getNodeId()?.toStardardLengthHex()}",
+            text = "Node ID: ${blueHeavenViewModel.getPreferences()?.getNodeId()?.toStardardLengthHex() ?: "Loading..."}",
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
-//        if (globalState.preferences?.getPublicKey() != null) {
-//            Spacer(modifier = Modifier.height(8.dp))
-//
-//            PublicKeyQRCode(publicKeyParameters = globalState.preferences.getPublicKey()!!)
-//        }
+        val publicKey = blueHeavenViewModel.getPreferences()?.getPublicKey()
+
+        if (publicKey != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Public Key",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            PublicKeyQRCode(publicKeyParameters = publicKey)
+        }
 
         Text(
             text = "Reachable Nodes",

@@ -1,4 +1,4 @@
-package xyz.regulad.blueheaven.ui.BHNavHost
+package xyz.regulad.blueheaven.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle

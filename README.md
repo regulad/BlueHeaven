@@ -10,7 +10,7 @@ Based on the [B.A.T.M.A.N.](https://en.wikipedia.org/wiki/B.A.T.M.A.N.) routing 
 
 ## Implementation Woes
 
-Although I had a lot of fun writing the code, I ran into several issues that ultimately led to me abandoning the project:
+Although I had a lot of fun writing the code, I ran into several issues that I was able to solve.
 
 * Android's Bluetooth LE API is only available on Lolipop (5.0) and above. This means that I can't use my older phones, which limits the maximum size of my network. I was left with only five phones to test on.
 * In addition, the API requires a device to be equipped with a Bluetooth 4.2 transmitter, which is rare among old phones, even those running Lolipop. My Samsung Galaxy S5s and Moto G4 Plays were compatible, but others were not.
@@ -21,14 +21,8 @@ Although I had a lot of fun writing the code, I ran into several issues that ult
 * While reconnection logic was easy, BLE is restricted to creating one connection per device before behavior becomes unpredictable.
 * **Even making only one connection at a time, connection to the GATT servers was still extremely unreliable. Requests regularly shot above the 60-second timeout.**
 
-The final problem proved to be the most fatal. Occasionally, the client would be able to connect with no problem, but completely randomly it would not be able to send data to the server. After 5+ hours of debugging, I was not able to find even a single lead towards why this was happening. Multiple devices, multiple Android versions, multiple BLE chipsets, and multiple connection methods were all tried, but the problem persisted.
+The final problem proved to be the most fatal. Occasionally, the client would be able to connect with no problem, but completely randomly it would not be able to send data to the server. After 5+ hours of debugging, I was not able to find even a single lead towards why this was happening. Multiple devices, multiple Android versions, multiple BLE chipsets, and multiple connection methods were all tried, but the problem persisted. Eventually, I stumbed across the medium series [Making Android BLE Work](https://medium.com/@martijn.van.welie/making-android-ble-work-part-3-117d3a8aee23) and I was able to put it all together. I need to thank Martijn van Welie endlessly as his series was the only thing that helped me solve my problem. 
 
-## Conclusion
+![BLE Connection Diagram](https://media.discordapp.net/attachments/1251004997118722078/1279614616246423653/IMG_2557.jpg?ex=66d5157a&is=66d3c3fa&hm=c50b18af737a2c215e9dcd3da3ae7925900bb67eea8122c61346f64c34048099&=&format=webp&width=904&height=678)
 
-You can see a video of me trying out the mesh on five devices in my backyard, but be warned that it was 2 am and I'm quite loopy: https://youtu.be/UOqSAdVVKYk
-
-The fact that Bluetooth LE's official mesh network specs are only intended for IoT devices should have been my first warning sign that this project was never going to work, but it was fun to try regardless. I learned a ton about Android, Jetpack Compose, BLE, and networking.
-
-I'm still a little disappointed that the mesh didn't work, but I'm happy with my progress and knowledge. I'm excited to see what I can do with this knowledge.
-
-My next project will be a little more grounded in reality, I promise. Maybe something with `WifiManager::startLocalOnlyHotspot`? It seems like an interesting API to play with; I can already imagine marketing it to kids so they can play Minecraft together without needing a router.
+> A picture from a version where devices had no limit on the number of servers they could connect to. You could see that they *really* favored connecting to as many peers as possible. However, you can see one of the devices along the top with knowledge about nodes that it isn't connected to directly. This is the OGM routing algorithm at work!

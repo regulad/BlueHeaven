@@ -58,8 +58,13 @@ class UserPreferencesRepository(context: Context) {
         return publicKeyString?.let { android.util.Base64.decode(it, android.util.Base64.DEFAULT) }
     }
 
-    fun getPublicKey(): Ed25519PublicKeyParameters? {
-        val publicKeyBytes = getPublicKeyBytes() ?: return null
+    fun getPublicKey(): Ed25519PublicKeyParameters {
+        if (!isStoreInitialized()) {
+            // key store generation is so quick it doesn't matter
+            generateAndStoreKeyPair()
+        }
+
+        val publicKeyBytes = getPublicKeyBytes()!!
         return Ed25519PublicKeyParameters(publicKeyBytes, 0)
     }
 
@@ -73,19 +78,25 @@ class UserPreferencesRepository(context: Context) {
         return privateKeyString?.let { android.util.Base64.decode(it, android.util.Base64.DEFAULT) }
     }
 
-    fun getPrivateKey(): Ed25519PrivateKeyParameters? {
-        val privateKeyBytes = getPrivateKeyBytes() ?: return null
+    fun getPrivateKey(): Ed25519PrivateKeyParameters {
+        if (!isStoreInitialized()) {
+            // key store generation is so quick it doesn't matter
+            generateAndStoreKeyPair()
+        }
+
+        val privateKeyBytes = getPrivateKeyBytes()!!
         return Ed25519PrivateKeyParameters(privateKeyBytes, 0)
     }
 
     /**
      * Generates a new Ed25519 key pair and stores it.
      */
-    fun generateAndStoreKeyPair() {
+    fun generateAndStoreKeyPair(): AsymmetricCipherKeyPair {
         val generator = Ed25519KeyPairGenerator()
         generator.init(Ed25519KeyGenerationParameters(SecureRandom()))
         val keyPair = generator.generateKeyPair()
         setKeyPair(keyPair)
+        return keyPair
     }
 
     /**
@@ -93,7 +104,7 @@ class UserPreferencesRepository(context: Context) {
      *
      * @return true if both public and private keys exist, false otherwise.
      */
-    fun isStoreInitialized(): Boolean {
+    private fun isStoreInitialized(): Boolean {
         return getPublicKeyBytes() != null && getPrivateKeyBytes() != null
     }
 

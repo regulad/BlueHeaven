@@ -28,6 +28,10 @@
     <uses-feature android:name="android.hardware.bluetooth" android:required="true"/>
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 
+    <!-- Service -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
     <application
             android:allowBackup="true"
             android:dataExtractionRules="@xml/data_extraction_rules"
@@ -38,6 +42,12 @@
             android:supportsRtl="true"
             android:theme="@style/Theme.BlueHeaven"
             tools:targetApi="31">
+        <service
+                android:name=".BlueHeavenService"
+                android:enabled="true"
+                android:exported="false"
+                android:foregroundServiceType="connectedDevice" />
+
         <activity
                 android:name=".MainActivity"
                 android:exported="true"

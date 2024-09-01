@@ -1,4 +1,4 @@
-package xyz.regulad.blueheaven.ui
+package xyz.regulad.blueheaven.ui.components
 
 import android.graphics.Bitmap
 import android.graphics.Color

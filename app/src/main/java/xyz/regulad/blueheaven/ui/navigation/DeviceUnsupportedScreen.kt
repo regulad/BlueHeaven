@@ -38,7 +38,7 @@ fun DeviceUnsupportedScreen() {
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "BlueHeaven requires a device with Bluetooth 4.2, which this device doesn't have. Please try again on a device with a newer Bluetooth version.",
+            text = "BlueHeaven requires a device with Bluetooth 4.2, which this device either doesn't have or doesn't have enabled. Please enable your Bluetooth if you haven't already, or try on another device.",
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center
         )

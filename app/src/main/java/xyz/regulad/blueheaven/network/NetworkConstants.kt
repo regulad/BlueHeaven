@@ -31,7 +31,8 @@ object NetworkConstants {
 
     fun hasBluetoothHardwareSupport(context: Context): Boolean {
         // bt dr/edr and le is guaranteed by the manifest
-        return (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter.isMultipleAdvertisementSupported
+        val bluetoothAdapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        return bluetoothAdapter.isMultipleAdvertisementSupported || !bluetoothAdapter.isEnabled // is multiple advertisement supported or bluetooth is off
     }
 
     fun canOpenBluetooth(context: Context): Boolean {

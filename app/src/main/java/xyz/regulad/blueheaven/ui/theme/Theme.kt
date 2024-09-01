@@ -1,4 +1,4 @@
-package xyz.regulad.blueheaven.ui.BHNavHost
+package xyz.regulad.blueheaven.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
