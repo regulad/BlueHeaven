@@ -1,6 +1,6 @@
 # [📱📲: BlueHeaven: Bluetooth Low Energy-based mesh network for general-purpose traffic](https://github.com/regulad/BlueHeaven)
 
-![Successful connection across 5 nodes](https://imgur.com/a/jJsaunP)
+![Successful connection across 5 nodes](https://i.imgur.com/E2ZsM30.jpeg)
 
 ## Design Overview
 
