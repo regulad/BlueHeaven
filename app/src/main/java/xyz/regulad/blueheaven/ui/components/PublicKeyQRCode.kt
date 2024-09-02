@@ -19,7 +19,7 @@ import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 
 @Composable
 fun PublicKeyQRCode(
-    publicKeyParameters: Ed25519PublicKeyParameters,
+    publicKeyParameters: ByteArray,
     size: Pair<Int, Int> = Pair(300, 300),
     modifier: Modifier = Modifier
 ) {
@@ -50,11 +50,11 @@ fun PublicKeyQRCode(
 }
 
 private fun generateQRCode(
-    publicKeyParameters: Ed25519PublicKeyParameters,
+    publicKeyParameters: ByteArray,
     width: Int,
     height: Int
 ): Bitmap {
-    val publicKeyBytes = publicKeyParameters.encoded
+    val publicKeyBytes = publicKeyParameters
     val writer = QRCodeWriter()
     val bitMatrix = writer.encode(publicKeyBytes.toString(Charsets.ISO_8859_1), BarcodeFormat.QR_CODE, width, height)
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)

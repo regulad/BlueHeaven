@@ -1,12 +1,10 @@
-package xyz.regulad.blueheaven.ui.navigation
+package xyz.regulad.blueheaven.ui.navigation.screens
 
+import android.app.Activity
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
-import androidx.compose.material3.Button
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -21,6 +19,8 @@ import xyz.regulad.blueheaven.BlueHeavenViewModel
 import xyz.regulad.blueheaven.network.NetworkConstants.RUNTIME_REQUIRED_BLUETOOTH_PERMISSIONS
 import xyz.regulad.blueheaven.network.NetworkConstants.canOpenBluetooth
 import xyz.regulad.blueheaven.network.NetworkConstants.hasBluetoothHardwareSupport
+import xyz.regulad.blueheaven.ui.navigation.BlueHeavenRoute
+import xyz.regulad.blueheaven.util.showDialog
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -32,7 +32,21 @@ fun BluetoothPermissionPromptScreen(
     val context = LocalContext.current
 
     val permissionState =
-        rememberMultiplePermissionsState(permissions = RUNTIME_REQUIRED_BLUETOOTH_PERMISSIONS.toList())
+        rememberMultiplePermissionsState(
+            permissions = RUNTIME_REQUIRED_BLUETOOTH_PERMISSIONS.toList(),
+            onPermissionsResult = { permissions ->
+                if (permissions.all { it.value }) {
+                    // send a notification saying expect the Bluetooth Share to crash
+                    val isSamsung = android.os.Build.MANUFACTURER.equals("samsung", ignoreCase = true)
+                    if (isSamsung) {
+                        context.showDialog(
+                            title = "BlueHeaven",
+                            message = "You may see a notification saying \"Bluetooth Share has stopped\". This is normal and expected while BlueHeaven is active. Please ignore it.",
+                        )
+                    }
+                }
+            }
+        )
 
     LaunchedEffect(permissionState.allPermissionsGranted) {
         val hasHardwareSupport = hasBluetoothHardwareSupport(context)
@@ -82,6 +96,14 @@ fun BluetoothPermissionPromptScreen(
             textAlign = TextAlign.Center
         )
 
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "Please grant the permissions to continue.",
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center
+        )
+
         Spacer(modifier = Modifier.height(24.dp))
 
         Button(
@@ -90,6 +112,18 @@ fun BluetoothPermissionPromptScreen(
             }
         ) {
             Text("Grant Permissions")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        val activity = (LocalContext.current as? Activity)
+
+        OutlinedButton (
+            onClick = {
+                activity?.finish()
+            },
+        ) {
+            Text("Close App")
         }
     }
 }

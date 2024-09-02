@@ -71,7 +71,7 @@ class BLEPeripheralView private constructor(
             val view = BLEPeripheralView(this, context, autoConnect, callback)
 
             if (autoConnect) {
-                // we can't lock here; we need to lock in the connect() function
+                // autoConnect doesn't need to lock
                 view.connect()
             } else {
                 completeNonAutoConnectLock.withLock {
@@ -152,6 +152,15 @@ class BLEPeripheralView private constructor(
             } else thisGatt?.disconnect()
             return@withLock
         }
+    }
+
+    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    fun forceDisconnect() {
+        if (!didDisconnect.compareAndSet(false, true)) {
+            return
+        }
+
+        cleanUp()
     }
 
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
@@ -413,41 +422,32 @@ class BLEPeripheralView private constructor(
     }
 
     /**
-     * Writes a descriptor to the peripheral. If the peripheral doesn't respond, pass `wait`=`false` to ignore the response.
-     *
-     * The BH GATT server doesn't respond to descriptor writes, so we can ignore the response.
+     * Writes a descriptor to the peripheral.
      */
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    suspend fun writeDescriptor(descriptor: BluetoothGattDescriptor, value: ByteArray, wait: Boolean = false) = asyncOperationLock.withLock {
+    suspend fun writeDescriptor(descriptor: BluetoothGattDescriptor, value: ByteArray) = asyncOperationLock.withLock {
         val dispatched = gatt.versionAgnosticWriteDescriptor(descriptor, value);
 
         if (!dispatched) {
             throw IllegalStateException("Failed to write descriptor")
         }
 
-        if (wait) {
-            val status = writeDescriptorChannel.receive()
+        val status = writeDescriptorChannel.receive()
 
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                throw IllegalStateException("Failed to write descriptor with status $status")
-            } else {
-                return@withLock
-            }
-        } else {
-            callbackCoroutineScope.launch {
-                writeDescriptorChannel.receive()
-            }
-            return@withLock
+        if (status != BluetoothGatt.GATT_SUCCESS) {
+            throw IllegalStateException("Failed to write descriptor with status $status")
         }
     }
 
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     // this operation doesn't lock, we call an operation that does
-    suspend fun subscribeToCharacteristic(characteristic: BluetoothGattCharacteristic, yes: Boolean) {
-        gatt.setCharacteristicNotification(characteristic, yes)
-        val (newDescriptor, value) = JavaBleHelper.setNotify(characteristic, yes)
-            ?: throw  IllegalStateException("Failed to set notification")
-        writeDescriptor(newDescriptor, value)
+    suspend fun updateCharacteristicSubscriptionState(characteristic: BluetoothGattCharacteristic, shouldSubscribe: Boolean, writeDescriptor: Boolean = true) {
+        gatt.setCharacteristicNotification(characteristic, shouldSubscribe)
+        if (writeDescriptor) {
+            val (newDescriptor, value) = JavaBleHelper.setNotify(characteristic, shouldSubscribe)
+                ?: throw  IllegalStateException("Failed to get descriptor for characteristic ${characteristic.uuid}")
+            writeDescriptor(newDescriptor, value)
+        }
     }
 
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)

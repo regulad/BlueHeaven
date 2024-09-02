@@ -1,4 +1,4 @@
-package xyz.regulad.blueheaven.ui.navigation
+package xyz.regulad.blueheaven.ui.navigation.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons

@@ -1,6 +1,6 @@
-package xyz.regulad.blueheaven.ui.navigation
+package xyz.regulad.blueheaven.ui.navigation.screens
 
-import android.view.WindowManager
+import NodeGraphVisualization
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -10,13 +10,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import xyz.regulad.blueheaven.BlueHeavenViewModel
 import xyz.regulad.blueheaven.network.NetworkConstants.toStardardLengthHex
 import xyz.regulad.blueheaven.ui.components.LogcatViewer
+import xyz.regulad.blueheaven.ui.components.MaxWidthContainer
 import xyz.regulad.blueheaven.ui.components.PublicKeyQRCode
 
 @Composable
@@ -31,7 +33,7 @@ fun KeepScreenOn() {
 }
 
 @Composable
-fun InfoScreen(blueHeavenViewModel: BlueHeavenViewModel) {
+fun DebugScreen(blueHeavenViewModel: BlueHeavenViewModel) {
     // screen on for debug
     KeepScreenOn()
 
@@ -46,21 +48,28 @@ fun InfoScreen(blueHeavenViewModel: BlueHeavenViewModel) {
         )
     }
 
+    val updateNodes = fun() {
+        reachableNodes = blueHeavenViewModel.getRouter()?.getReachableNodeIDs() ?: emptySet()
+        directConnections = blueHeavenViewModel.getRouter()?.getDirectlyConnectedNodeIDs() ?: emptySet()
+    }
+
     DisposableEffect(blueHeavenViewModel.getFrontend()) {
         val frontend = blueHeavenViewModel.getFrontend()
             ?: return@DisposableEffect onDispose {
                 // nothing to do; frontend doesn't exist yet
             }
 
-        val listener = fun() {
-            reachableNodes = blueHeavenViewModel.getRouter()?.getReachableNodeIDs() ?: emptySet()
-            directConnections = blueHeavenViewModel.getRouter()?.getDirectlyConnectedNodeIDs() ?: emptySet()
-        }
-
-        frontend.addTopologyChangeListener(listener)
+        frontend.addTopologyChangeListener(updateNodes)
 
         onDispose {
-            frontend.removeTopologyChangeListener(listener)
+            frontend.removeTopologyChangeListener(updateNodes)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            updateNodes() // can sometimes desync
+            delay(1000)
         }
     }
 
@@ -186,15 +195,52 @@ fun InfoScreen(blueHeavenViewModel: BlueHeavenViewModel) {
         val publicKey = blueHeavenViewModel.getPreferences()?.getPublicKey()
 
         if (publicKey != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-
             Text(
-                text = "Public Key",
+                text = "This node's public key:",
                 style = MaterialTheme.typography.bodyMedium
             )
 
-            PublicKeyQRCode(publicKeyParameters = publicKey)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // making it encoded here helps us save rerenders because the encoded can be compared
+            PublicKeyQRCode(publicKeyParameters = publicKey.encoded)
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
+
+        Text(
+            text = "Topology",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        val edges = mutableSetOf<Pair<UInt, UInt>>().apply {
+            val knownExternalRoutes = blueHeavenViewModel.getRouter()?.getRoutes() ?: emptyMap()
+            knownExternalRoutes.forEach { (from, to) ->
+                to.forEach {
+                    add(from to it)
+                }
+            }
+
+            val knownDirectConnections = blueHeavenViewModel.getRouter()?.getDirectlyConnectedNodeIDs() ?: emptySet()
+            knownDirectConnections.forEach {
+                add(blueHeavenViewModel.getPreferences()?.getNodeId()!! to it)
+            }
+        }.toSet()
+
+        MaxWidthContainer(600.dp) {
+            NodeGraphVisualization(
+                center = blueHeavenViewModel.getPreferences()?.getNodeId() ?: 0u,
+                innerRing = directConnections,
+                outerRing = reachableNodes,
+                edges = edges,
+                modifier = Modifier.aspectRatio(1F).fillMaxWidth().height(400.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         Text(
             text = "Reachable Nodes",

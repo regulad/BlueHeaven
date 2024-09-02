@@ -30,7 +30,7 @@ import xyz.regulad.blueheaven.storage.BlueHeavenDatabase
 import xyz.regulad.blueheaven.storage.UserPreferencesRepository
 import xyz.regulad.blueheaven.util.BoundedThreadSafeLinkedHashSet
 import xyz.regulad.blueheaven.util.isRunning
-import xyz.regulad.blueheaven.util.versionIndependentRemoveIf
+import xyz.regulad.blueheaven.util.versionAgnosticRemoveIf
 import java.nio.ByteBuffer
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
@@ -172,7 +172,7 @@ class BlueHeavenService : Service(), NetworkEventCallback {
 
     override fun onDestroy() {
         super.onDestroy()
-        closeBluetooth()
+        closeBluetooth() // absolutely critical we do this; it closes the bluetooth resources which otherwise will leak endlessly
         unregisterReceiver(bluetoothStatusReceiver)
     }
 
@@ -254,7 +254,7 @@ class BlueHeavenService : Service(), NetworkEventCallback {
     }
 
     fun unbindServiceNumber(callback: NetworkEventCallback) {
-        serviceNumberBindings.entries.versionIndependentRemoveIf { it.value == callback }
+        serviceNumberBindings.entries.versionAgnosticRemoveIf { it.value == callback }
     }
 
     private val topologyChangeListener = mutableSetOf<() -> Unit>()

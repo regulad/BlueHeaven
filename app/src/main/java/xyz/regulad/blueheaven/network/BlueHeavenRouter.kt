@@ -135,9 +135,7 @@ class BlueHeavenRouter(
         gattServer?.close()
         gattServer = null
         // this doesn't wait for the mutex to be released
-        runBlocking {
-            gattClientConnections.values.forEach { it.view.disconnect() }
-        }
+        gattClientConnections.values.forEach { it.view.forceDisconnect() }
         gattClientConnections.clear()
         mainScope.cancel()
         ioScope.cancel()
@@ -469,7 +467,7 @@ class BlueHeavenRouter(
         val view: BLEPeripheralView,
         val connectedNodeId: UInt?, // it might not be sent
         // node id, last seen time
-        val lastTimeNodeUpdated: ConcurrentHashMap<UInt, Long> = ConcurrentHashMap(),
+        val lastTimeNodeUpdatedMap: ConcurrentHashMap<UInt, Long> = ConcurrentHashMap(),
     )
 
     /**
@@ -477,9 +475,9 @@ class BlueHeavenRouter(
      */
     private fun getBestConnectionsForNode(nodeId: UInt): List<GattClientConnectionInfo> {
         val timeMap = gattClientConnections.values
-            .filter { it.lastTimeNodeUpdated.contains(nodeId) }
+            .filter { it.lastTimeNodeUpdatedMap.contains(nodeId) }
             .flatMap { connectionInfo ->
-                listOf(connectionInfo.lastTimeNodeUpdated[nodeId]!! to connectionInfo)
+                listOf(connectionInfo.lastTimeNodeUpdatedMap[nodeId]!! to connectionInfo)
             }
             .toMap()
 
@@ -488,7 +486,7 @@ class BlueHeavenRouter(
 
     fun getReachableNodeIDs(): Set<UInt> {
         return gattClientConnections.values
-            .flatMap { it.lastTimeNodeUpdated.keys }
+            .flatMap { it.lastTimeNodeUpdatedMap.keys }
             .toSet() + thisNodeId + getDirectlyConnectedNodeIDs()
     }
 
@@ -498,6 +496,18 @@ class BlueHeavenRouter(
             .map { it.connectedNodeId }
             .requireNoNulls()
             .toSet()
+    }
+
+    /**
+     * Returns a list of nodes and their directly connected nodes.
+     */
+    fun getRoutes(): Map<UInt, Set<UInt>> {
+        return gattClientConnections.values.filter {
+            it.connectedNodeId != null
+        }.associate { it ->
+            // static copy
+            it.connectedNodeId!! to it.lastTimeNodeUpdatedMap.keys.toSet()
+        }
     }
 
     private suspend fun withBestConnection(
@@ -615,9 +625,14 @@ class BlueHeavenRouter(
                 Log.w(TAG, "Permit was already released, but something tried to release it again")
             }
 
-            gattClientConnections.remove(device.address)
-            enqueueEvictionOgm() // we don't need to evict our own routes; that's handled by r/seremoving the gattClientConnection
-            networkEventCallback.onTopologyChanged() // a disconnecting device may have been a bridge; we need to reevaluate the topology
+            val gattWasInserted = gattClientConnections.remove(device.address) != null
+
+            if (gattWasInserted) {
+                // this was an established node; it was very likely a bridge
+                enqueueEvictionOgm() // we don't need to evict our own routes; that's handled by r/seremoving the gattClientConnection
+                networkEventCallback.onTopologyChanged() // a disconnecting device may have been a bridge; we need to reevaluate the topology
+            }
+
             view?.disconnect()
         }
 
@@ -658,7 +673,8 @@ class BlueHeavenRouter(
                         return
                     }
 
-                    view.subscribeToCharacteristic(ogmCharacteristic, true)
+                    // we don't implement code to return the descriptor write result; if we set this true it would hang indefinitely
+                    view.updateCharacteristicSubscriptionState(ogmCharacteristic, true, writeDescriptor = false)
 
                     scheduleConnectionTimeout(device.address)
 
@@ -743,13 +759,13 @@ class BlueHeavenRouter(
             // this is a special OGM that tells us to evict all known routes coming from this device
             // will need to wait for new OGMs to come in to reestablish routes
             gattClientConnections[deviceAddress]?.let { connectionInfo ->
-                connectionInfo.lastTimeNodeUpdated.clear()
+                connectionInfo.lastTimeNodeUpdatedMap.clear()
                 changed = true
             }
             changed = true
         } else {
             gattClientConnections[deviceAddress]?.let { connectionInfo ->
-                connectionInfo.lastTimeNodeUpdated[ogm.nodeId] = now
+                connectionInfo.lastTimeNodeUpdatedMap[ogm.nodeId] = now
                 changed = true
             }
         }

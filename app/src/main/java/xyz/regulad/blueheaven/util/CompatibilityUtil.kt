@@ -4,10 +4,8 @@ import android.app.ActivityManager
 import android.app.Service
 import android.content.Context
 import android.os.Build
-import java.nio.ByteBuffer
-import java.util.*
 
-fun <T> MutableCollection<T>.versionIndependentRemoveIf(predicate: (T) -> Boolean) {
+fun <T> MutableCollection<T>.versionAgnosticRemoveIf(predicate: (T) -> Boolean) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
         this.removeIf(predicate)
     } else {
@@ -20,7 +18,7 @@ fun <T> MutableCollection<T>.versionIndependentRemoveIf(predicate: (T) -> Boolea
     }
 }
 
-fun <K, V> MutableMap<K, V>.versionIndependentComputeIfAbsent(key: K, mappingFunction: (K) -> V): V {
+fun <K, V> MutableMap<K, V>.versionAgnosticComputeIfAbsent(key: K, mappingFunction: (K) -> V): V {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
         return this.computeIfAbsent(key, mappingFunction)
     } else {
@@ -35,22 +33,16 @@ fun <K, V> MutableMap<K, V>.versionIndependentComputeIfAbsent(key: K, mappingFun
     }
 }
 
-suspend fun <K, V> MutableMap<K, V>.suspendingComputeIfAbsent(key: K, mappingFunction: suspend (K) -> V): V {
-    val value = this[key]
-    if (value == null) {
-        val newValue = mappingFunction(key)
-        this[key] = newValue
-        return newValue
+fun <K, V> MutableMap<K, V>.versionAgnosticPutIfAbsent(key: K, value: V): V? {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        return this.putIfAbsent(key, value)
     } else {
-        return value
+        val existingValue = this[key]
+        if (existingValue == null) {
+            this[key] = value
+        }
+        return existingValue
     }
-}
-
-fun UUID.asBytes(): ByteArray {
-    val b = ByteBuffer.wrap(ByteArray(16))
-    b.putLong(mostSignificantBits)
-    b.putLong(leastSignificantBits)
-    return b.array()
 }
 
 fun Service.isRunning(): Boolean {
@@ -61,9 +53,4 @@ fun Service.isRunning(): Boolean {
         }
     }
     return false
-}
-
-fun <E> Set<E>.pickRandom(): E {
-    val index = Random().nextInt(this.size)
-    return this.elementAt(index)
 }

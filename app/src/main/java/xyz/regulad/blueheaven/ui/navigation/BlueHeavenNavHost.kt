@@ -6,11 +6,15 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import xyz.regulad.blueheaven.BlueHeavenViewModel
+import xyz.regulad.blueheaven.ui.navigation.screens.BluetoothPermissionPromptScreen
+import xyz.regulad.blueheaven.ui.navigation.screens.DeviceUnsupportedScreen
+import xyz.regulad.blueheaven.ui.navigation.screens.DebugScreen
 
 object BlueHeavenRoute {
     const val ONBOARDING = "bluetooth"
+    const val NOTIFICATIONS = "notifications"
     const val UNSUPPORTED = "unsupported"
-    const val INFO = "info"
+    const val DEBUG = "debug"
 }
 
 @Composable
@@ -22,14 +26,14 @@ fun BlueHeavenNavHost(modifier: Modifier = Modifier, blueHeavenViewModel: BlueHe
             BluetoothPermissionPromptScreen(
                 blueHeavenViewModel = blueHeavenViewModel,
                 navController = navController,
-                nextScreen = BlueHeavenRoute.INFO
+                nextScreen = BlueHeavenRoute.DEBUG
             )
         }
         composable(route = BlueHeavenRoute.UNSUPPORTED) {
             DeviceUnsupportedScreen()
         }
-        composable(route = BlueHeavenRoute.INFO) {
-            InfoScreen(blueHeavenViewModel = blueHeavenViewModel)
+        composable(route = BlueHeavenRoute.DEBUG) {
+            DebugScreen(blueHeavenViewModel = blueHeavenViewModel)
         }
         // Add more composable destinations here as needed
     }
