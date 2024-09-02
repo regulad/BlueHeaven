@@ -37,13 +37,10 @@ fun BluetoothPermissionPromptScreen(
             onPermissionsResult = { permissions ->
                 if (permissions.all { it.value }) {
                     // send a notification saying expect the Bluetooth Share to crash
-                    val isSamsung = android.os.Build.MANUFACTURER.equals("samsung", ignoreCase = true)
-                    if (isSamsung) {
-                        context.showDialog(
-                            title = "BlueHeaven",
-                            message = "You may see a notification saying \"Bluetooth Share has stopped\". This is normal and expected while BlueHeaven is active. Please ignore it.",
-                        )
-                    }
+                    context.showDialog(
+                        title = "BlueHeaven",
+                        message = "You may see a notification saying \"Bluetooth Share has stopped\". This is normal and expected while BlueHeaven is active. Please ignore it.",
+                    )
                 }
             }
         )

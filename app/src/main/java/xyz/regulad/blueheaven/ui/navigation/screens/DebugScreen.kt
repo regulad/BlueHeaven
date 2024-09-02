@@ -13,13 +13,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import xyz.regulad.blueheaven.BlueHeavenViewModel
+import xyz.regulad.blueheaven.network.NetworkConstants.canOpenBluetooth
+import xyz.regulad.blueheaven.network.NetworkConstants.hasBluetoothHardwareSupport
 import xyz.regulad.blueheaven.network.NetworkConstants.toStardardLengthHex
 import xyz.regulad.blueheaven.ui.components.LogcatViewer
 import xyz.regulad.blueheaven.ui.components.MaxWidthContainer
 import xyz.regulad.blueheaven.ui.components.PublicKeyQRCode
+import xyz.regulad.blueheaven.ui.navigation.BlueHeavenRoute
 
 @Composable
 fun KeepScreenOn() {
@@ -36,6 +40,23 @@ fun KeepScreenOn() {
 fun DebugScreen(blueHeavenViewModel: BlueHeavenViewModel) {
     // screen on for debug
     KeepScreenOn()
+
+    val navController = rememberNavController()
+    val context = LocalView.current.context
+
+    LaunchedEffect(Unit) {
+        val hasHardwareSupport = hasBluetoothHardwareSupport(context)
+
+        if (!hasHardwareSupport) {
+            navController.navigate(BlueHeavenRoute.UNSUPPORTED)
+            return@LaunchedEffect
+        }
+
+        val hasBluetoothPermission = canOpenBluetooth(context)
+        if (!hasBluetoothPermission) {
+            navController.navigate(BlueHeavenRoute.BT_ONBOARDING)
+        }
+    }
 
     var reachableNodes by remember {
         mutableStateOf(

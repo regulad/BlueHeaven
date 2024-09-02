@@ -11,8 +11,8 @@ import xyz.regulad.blueheaven.ui.navigation.screens.DeviceUnsupportedScreen
 import xyz.regulad.blueheaven.ui.navigation.screens.DebugScreen
 
 object BlueHeavenRoute {
-    const val ONBOARDING = "bluetooth"
-    const val NOTIFICATIONS = "notifications"
+    const val BT_ONBOARDING = "bluetooth"
+    const val NOTO_ONBOARDING = "notifications"
     const val UNSUPPORTED = "unsupported"
     const val DEBUG = "debug"
 }
@@ -21,8 +21,8 @@ object BlueHeavenRoute {
 fun BlueHeavenNavHost(modifier: Modifier = Modifier, blueHeavenViewModel: BlueHeavenViewModel) {
     val navController = rememberNavController()
 
-    NavHost(navController, startDestination = BlueHeavenRoute.ONBOARDING, modifier = modifier) {
-        composable(route = BlueHeavenRoute.ONBOARDING) {
+    NavHost(navController, startDestination = BlueHeavenRoute.DEBUG, modifier = modifier) {
+        composable(route = BlueHeavenRoute.BT_ONBOARDING) {
             BluetoothPermissionPromptScreen(
                 blueHeavenViewModel = blueHeavenViewModel,
                 navController = navController,

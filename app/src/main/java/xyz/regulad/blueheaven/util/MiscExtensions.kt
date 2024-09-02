@@ -1,7 +1,12 @@
 package xyz.regulad.blueheaven.util
 
+import android.content.pm.ApplicationInfo
 import java.nio.ByteBuffer
 import java.util.*
+
+fun ApplicationInfo.isDebuggable(): Boolean {
+    return (this.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+}
 
 suspend fun <K, V> MutableMap<K, V>.suspendingComputeIfAbsent(key: K, mappingFunction: suspend (K) -> V): V {
     val value = this[key]

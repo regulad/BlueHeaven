@@ -9,15 +9,21 @@ class Barrier<T>(private val size: Int) {
     private val mutex = Mutex()
 
     suspend fun collect(value: T, block: suspend (List<T>) -> Unit) {
+        val itemsNow: List<T>
+        val canRun: Boolean
+
         mutex.withLock {
             items.add(value)
-            if (items.size == size) {
-                try {
-                    block(items.toList())
-                } finally {
-                    items.clear()
-                }
+            itemsNow = items.toList()
+            canRun = itemsNow.size >= size
+
+            if (canRun) {
+                items.clear()
             }
+        }
+
+        if (canRun) {
+            block(itemsNow)
         }
     }
 }

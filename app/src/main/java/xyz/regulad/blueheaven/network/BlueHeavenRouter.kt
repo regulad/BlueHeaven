@@ -27,6 +27,7 @@ import xyz.regulad.blueheaven.storage.BlueHeavenDatabase
 import xyz.regulad.blueheaven.util.BLEConst.CCCD_UUID
 import xyz.regulad.blueheaven.util.Barrier
 import xyz.regulad.blueheaven.util.pickRandom
+import xyz.regulad.blueheaven.util.versionAgnosticNotifyCharacteristicChanged
 import java.nio.ByteBuffer
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
@@ -82,11 +83,12 @@ class BlueHeavenRouter(
 
         private const val TAG = "BlueHeavenRouter"
 
+        private const val CONNECTION_TIMEOUT_MS = 20_000L // 20 seconds // we need to be quick to connect; advertisements arent valid forever (also see BLEPeripheralView, but this happens before the connection lock)
         private const val SETUP_TIMEOUT_MS = 10_000L // 10 seconds // should be pretty quick; the connection is already established
         private const val CLIENT_CONNECTION_TTL_MS = 60_000L * 30 // 30 minutes // to favor new routing pathways, we kill connections that we have made to other nodes
 
-        const val OGM_BROADCAST_INTERVAL_MS = 50L // can be arbitrarily low; but it will consume more bandwidth
-        const val SELF_OGM_BROADCAST_INTERVAL_MS = 1000L // we need to be more conservative with our own OGMs; we need to make sure they get out but we don't want to spam the network
+        const val OGM_BROADCAST_INTERVAL_MS = 1_000L / 25 // can be arbitrarily low; but it will consume more bandwidth
+        const val SELF_OGM_BROADCAST_INTERVAL_MS = 1_000L // we need to be more conservative with our own OGMs; we need to make sure they get out but we don't want to spam the network
 
         // we have 7 to work with, minus the 1 pair of headphones (or game controller) the user might have connected.
         // and so, we get 6 equally split between server and client
@@ -252,7 +254,7 @@ class BlueHeavenRouter(
      * This method dequeues OGMs and updates the OGM characteristic for all connections.
      */
     private fun serveOneOgmOffQueue() {
-        val devices = connectedClients.toSet().map { bluetoothAdapter.getRemoteDevice(it) } // get a snapshot of the devices
+        val devices = bluetoothManager.getConnectedDevices(BluetoothProfile.GATT) // GATT -> connected clients
 
         // get an ogm off the queue
         val ogm = ogmQueue.poll() ?: return
@@ -272,22 +274,13 @@ class BlueHeavenRouter(
 
             for (device in devices) {
                 try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        gattServer?.notifyCharacteristicChanged(device, characteristic, false, ogmBytes)
-                    } else {
-                        characteristic.value = ogmBytes
-
-                        gattServer?.notifyCharacteristicChanged(device, characteristic, false)
-                    }
+                    gattServer?.versionAgnosticNotifyCharacteristicChanged(device, characteristic, false, ogmBytes)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to notify OGM to ${device.address}")
+                    Log.e(TAG, "Failed to notify OGM to ${device.address}: ${e.message}")
                 }
             }
         }
     }
-
-    // the getConnectedDevices behaves very irratically, better to track it ourselves
-    private var connectedClients = Collections.synchronizedSet(mutableSetOf<String>())
 
     private val gattServerCallback = object : BluetoothGattServerCallback() {
         @SuppressLint("MissingPermission")
@@ -297,12 +290,17 @@ class BlueHeavenRouter(
                     // note: we do NOT try to connect to the device that connected to us, they need to advertise themselves
                     // this is to avoid cases where the hardware address changes
 
+                    // this does spam the network, but its better than trying to keep our own logs and fetching a dead reference
+                    val connectedClients = bluetoothManager.getConnectedDevices(BluetoothProfile.GATT) // GATT -> connected clients
+
                     if (connectedClients.size < MAX_GATT_SERVER_CONNECTIONS) {
                         Log.d(TAG, "New device connected to our server: ${device.address}")
-                        connectedClients.add(device.address)
                     } else {
                         Log.d(TAG, "Rejecting connection, server limit reached: ${device.address}")
-                        gattServer?.cancelConnection(device)
+                        ioScope.launch {
+                            delay(100) // never directly disconnect, always try to wait
+                            gattServer?.cancelConnection(device)
+                        }
                     }
                 }
 
@@ -310,7 +308,6 @@ class BlueHeavenRouter(
 
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     Log.d(TAG, "Device disconnected from our server: ${device.address}")
-                    connectedClients.remove(device.address) // don't check too close, sometimes nodes reconnect immediately
                 }
             }
         }
@@ -642,7 +639,7 @@ class BlueHeavenRouter(
 
         try {
             val setupFinishedChannel = Channel<Unit>(1)
-            device.connectGattSafe(context, true, object : BLEPeripheralView.BLEPeripheralViewCallback() {
+            val callback = object : BLEPeripheralView.BLEPeripheralViewCallback() {
                 override suspend fun onFirstConnection(view: BLEPeripheralView) {
                     // wait a little, we won't be locked here
                     Log.d(TAG, "Connected to ${device.address} as a client")
@@ -703,7 +700,10 @@ class BlueHeavenRouter(
                         }
                     }
                 }
-            })
+            }
+            withTimeout(CONNECTION_TIMEOUT_MS) {
+                device.connectGattSafe(context, false, callback)
+            }
             withTimeout(SETUP_TIMEOUT_MS) {
                 setupFinishedChannel.receive()
             }

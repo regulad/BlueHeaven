@@ -11,6 +11,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import xyz.regulad.blueheaven.util.BleConnectionCompat
+import xyz.regulad.blueheaven.util.isDebuggable
+import xyz.regulad.blueheaven.util.showDialog
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -121,10 +123,30 @@ class BLEPeripheralView private constructor(
             val bleCompatLayer = BleConnectionCompat(context)
 
             expectingDisconnect.set(true)
-            bleCompatLayer.connectGatt(device, autoConnect, internalBluetoothGattCallback)
+
+            val newGatt = bleCompatLayer.connectGatt(device, autoConnect, internalBluetoothGattCallback)
+
+            if (newGatt == null) {
+                expectingDisconnect.set(false)
+
+                if (context.applicationInfo.isDebuggable()) {
+                    context.showDialog(
+                        title = "ERR! clientIf=0",
+                        message = "Failed to connect to ${device.address}; clientIf=0 !!RESOURCE LEAK!!"
+                    )
+                }
+
+                throw IllegalStateException("Failed to connect to ${device.address}, deeper problem!")
+            }
+
             gatt = withTimeout(FIRST_CONNECTION_TIMEOUT_MS) {
                 connectionStatusReceivedChannel.receive() ?: throw IllegalStateException("Failed to connect to ${device.address}")
             }
+
+            if (gatt != newGatt) {
+                Log.d(TAG, "Possible desync; gatt from channel is not the same as the one we got back from connectGatt")
+            }
+
             Log.d(TAG, "Got a gatt connection to ${device.address} with autoconnect=$autoConnect back from channel; ready to roll")
             expectingDisconnect.set(false)
 
@@ -470,5 +492,17 @@ class BLEPeripheralView private constructor(
     fun getService(uuid: UUID): BluetoothGattService? {
         return gatt.getService(uuid)
     }
-}
 
+    // this is our final safety check keeping the gatt from being leaked
+    @SuppressLint("MissingPermission")
+    protected fun finalize() {
+        if (!didDisconnect.get()) {
+            Log.w(TAG, "Finalizing BLEPeripheralView before it was manually closed! disconnecting from ${device.address}")
+            try {
+                forceDisconnect()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to disconnect from ${device.address} during finalization", e)
+            }
+        }
+    }
+}
