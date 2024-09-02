@@ -13,7 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import xyz.regulad.blueheaven.BlueHeavenViewModel
@@ -37,11 +37,13 @@ fun KeepScreenOn() {
 }
 
 @Composable
-fun DebugScreen(blueHeavenViewModel: BlueHeavenViewModel) {
+fun DebugScreen(
+    blueHeavenViewModel: BlueHeavenViewModel,
+    navController: NavController
+) {
     // screen on for debug
     KeepScreenOn()
 
-    val navController = rememberNavController()
     val context = LocalView.current.context
 
     LaunchedEffect(Unit) {
@@ -257,7 +259,10 @@ fun DebugScreen(blueHeavenViewModel: BlueHeavenViewModel) {
                 innerRing = directConnections,
                 outerRing = reachableNodes,
                 edges = edges,
-                modifier = Modifier.aspectRatio(1F).fillMaxWidth().height(400.dp)
+                modifier = Modifier
+                    .aspectRatio(1F)
+                    .fillMaxWidth()
+                    .height(400.dp)
             )
         }
 
