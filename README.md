@@ -1,5 +1,7 @@
 # [📱📲: BlueHeaven: Bluetooth Low Energy-based mesh network for general-purpose traffic](https://github.com/regulad/BlueHeaven)
 
+![Successful connection across 5 nodes](https://imgur.com/a/jJsaunP)
+
 ## Design Overview
 
 BlueHeaven was born when I came into possession of around 15 Android phones and decided that I wanted to do something with them. 
@@ -25,4 +27,4 @@ The final problem proved to be the most fatal. Occasionally, the client would be
 
 ![BLE Connection Diagram](https://media.discordapp.net/attachments/1251004997118722078/1279614616246423653/IMG_2557.jpg?ex=66d5157a&is=66d3c3fa&hm=c50b18af737a2c215e9dcd3da3ae7925900bb67eea8122c61346f64c34048099&=&format=webp&width=904&height=678)
 
-> A picture from a version where devices had no limit on the number of servers they could connect to. You could see that they *really* favored connecting to as many peers as possible. However, you can see one of the devices along the top with knowledge about nodes that it isn't connected to directly. This is the OGM routing algorithm at work!
+> A picture from a version where devices had no limit on the number of servers they could connect to. You could see that they *really* favored connecting to as many peers as possible. However, you can see one of the devices along the top with knowledge about nodes it isn't directly connected to. This is the OGM routing algorithm at work!
