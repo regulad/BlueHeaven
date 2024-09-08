@@ -44,7 +44,19 @@ object NetworkConstants {
         return hasHardwareSupport && hasPermission
     }
 
-    fun UInt.toStardardLengthHex(): String {
-        return this.toString(16).padStart(8, '0').uppercase()
+    fun UByte.toHex(): String {
+        return "0x" + this.toString(16).padStart(2, '0').uppercase()
+    }
+
+    fun UShort.toHex(): String {
+        return "0x" + this.toString(16).padStart(4, '0').uppercase()
+    }
+
+    fun UInt.toHex(): String {
+        return "0x" + this.toString(16).padStart(8, '0').uppercase()
+    }
+
+    fun ULong.toHex(): String {
+        return "0x" + this.toString(16).padStart(16, '0').uppercase()
     }
 }

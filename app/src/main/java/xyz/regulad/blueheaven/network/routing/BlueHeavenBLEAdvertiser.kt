@@ -12,12 +12,13 @@ import android.os.Build
 import android.util.Log
 import xyz.regulad.blueheaven.network.BlueHeavenRouter.Companion.MANUFACTURER_ID
 import xyz.regulad.blueheaven.network.BlueHeavenRouter.Companion.SERVICE_UUID
+import xyz.regulad.blueheaven.storage.UserPreferencesRepository
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 
 class BlueHeavenBLEAdvertiser(
     context: Context,
-    thisNodeId: UInt
+    private val preferences: UserPreferencesRepository
 ) {
     companion object {
         const val TAG = "BlueHeavenBLEAdvertiser"
@@ -42,13 +43,17 @@ class BlueHeavenBLEAdvertiser(
         }
     }
 
-    private val advertiseData: AdvertiseData = AdvertiseData.Builder()
-        .addServiceUuid(SERVICE_UUID)
-        .setIncludeDeviceName(false) // makes it too large
-        .setIncludeTxPowerLevel(false)
-        .addManufacturerData(MANUFACTURER_ID, ByteBuffer.allocate(4).putInt(thisNodeId.toInt()).array())
-        .build()
-
+    private fun buildAdvertiseData(): AdvertiseData {
+        return AdvertiseData.Builder()
+            .addServiceUuid(SERVICE_UUID)
+            .setIncludeDeviceName(false) // makes it too large
+            .setIncludeTxPowerLevel(false)
+            .addManufacturerData(
+                MANUFACTURER_ID,
+                ByteBuffer.allocate(4).putInt(preferences.getNodeId().toInt()).array()
+            )
+            .build()
+    }
 
     private val advertisingCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
@@ -63,7 +68,7 @@ class BlueHeavenBLEAdvertiser(
     private val bluetoothManager: BluetoothManager =
         context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val bluetoothAdapter: BluetoothAdapter = bluetoothManager.adapter
-    private val advertiser: BluetoothLeAdvertiser? = bluetoothAdapter.bluetoothLeAdvertiser
+    private var advertiser: BluetoothLeAdvertiser? = bluetoothAdapter.bluetoothLeAdvertiser
 
     private val isAdvertising = AtomicBoolean(false)
 
@@ -78,6 +83,10 @@ class BlueHeavenBLEAdvertiser(
             Log.w(TAG, "Already advertising")
             return
         }
+
+        advertiser = bluetoothAdapter.bluetoothLeAdvertiser
+
+        val advertiseData = buildAdvertiseData()
 
         advertiser?.startAdvertising(ADVERTISING_SETTINGS, advertiseData, advertisingCallback)
     }

@@ -17,6 +17,12 @@ import java.security.SecureRandom
  * @property context The Android application context.
  */
 class UserPreferencesRepository(context: Context) {
+    enum class SentryPermissions {
+        UNASKED,
+        DENIED,
+        GRANTED
+    }
+
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
         .build()
@@ -33,6 +39,18 @@ class UserPreferencesRepository(context: Context) {
         private const val KEY_NODE_ID = "node_id"
         private const val KEY_PUBLIC_KEY = "public_key"
         private const val KEY_PRIVATE_KEY = "private_key"
+        private const val KEY_SENTRY_PERMISSIONS = "sentry_permissions"
+    }
+
+    fun getSentryPermissions(): SentryPermissions {
+        val sentryPermissions = sharedPreferences.getString(KEY_SENTRY_PERMISSIONS, null)
+        return sentryPermissions?.let { SentryPermissions.valueOf(it) } ?: SentryPermissions.UNASKED
+    }
+
+    fun setSentryPermissions(permissions: SentryPermissions) {
+        sharedPreferences.edit()
+            .putString(KEY_SENTRY_PERMISSIONS, permissions.name)
+            .apply()
     }
 
     /**
@@ -59,9 +77,8 @@ class UserPreferencesRepository(context: Context) {
     }
 
     fun getPublicKey(): Ed25519PublicKeyParameters {
-        if (!isStoreInitialized()) {
-            // key store generation is so quick it doesn't matter
-            generateAndStoreKeyPair()
+        if (!isKeyStoreInitalized()) {
+            throw IllegalStateException("Key pair not initialized")
         }
 
         val publicKeyBytes = getPublicKeyBytes()!!
@@ -79,9 +96,8 @@ class UserPreferencesRepository(context: Context) {
     }
 
     fun getPrivateKey(): Ed25519PrivateKeyParameters {
-        if (!isStoreInitialized()) {
-            // key store generation is so quick it doesn't matter
-            generateAndStoreKeyPair()
+        if (!isKeyStoreInitalized()) {
+            throw IllegalStateException("Key pair not initialized")
         }
 
         val privateKeyBytes = getPrivateKeyBytes()!!
@@ -91,7 +107,7 @@ class UserPreferencesRepository(context: Context) {
     /**
      * Generates a new Ed25519 key pair and stores it.
      */
-    fun generateAndStoreKeyPair(): AsymmetricCipherKeyPair {
+    fun generateKeyPair(): AsymmetricCipherKeyPair {
         val generator = Ed25519KeyPairGenerator()
         generator.init(Ed25519KeyGenerationParameters(SecureRandom()))
         val keyPair = generator.generateKeyPair()
@@ -104,7 +120,7 @@ class UserPreferencesRepository(context: Context) {
      *
      * @return true if both public and private keys exist, false otherwise.
      */
-    private fun isStoreInitialized(): Boolean {
+    fun isKeyStoreInitalized(): Boolean {
         return getPublicKeyBytes() != null && getPrivateKeyBytes() != null
     }
 

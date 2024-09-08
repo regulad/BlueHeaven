@@ -1,4 +1,4 @@
-package xyz.regulad.blueheaven.util
+package xyz.regulad.blueheaven.network.delegate
 
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGattCharacteristic

@@ -6,7 +6,6 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
 import androidx.collection.LruCache
-import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
@@ -18,8 +17,7 @@ import kotlin.concurrent.write
  */
 class BlueHeavenDatabase(
     context: Context,
-    private val thisNodeId: UInt,
-    private val thisNodePublicKeyParameters: Ed25519PublicKeyParameters
+    private val preferencesRepository: UserPreferencesRepository
 ) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
     companion object {
         const val DATABASE_NAME = "blueheaven.db"
@@ -67,7 +65,7 @@ class BlueHeavenDatabase(
      * @param nodeId The UUID of the node this key is authorized for.
      */
     fun registerPublicKey(publicKey: Ed25519PublicKeyParameters, nodeId: UInt) {
-        if (nodeId == thisNodeId) {
+        if (nodeId == preferencesRepository.getNodeId()) {
             Log.w(TAG, "Attempted to register a public key for the local node")
             return
         }
@@ -98,9 +96,9 @@ class BlueHeavenDatabase(
      * @return A list of fresh Ed25519PublicKeyParameters for the given node.
      */
     fun readPublicKeysForNode(nodeId: UInt): Collection<Ed25519PublicKeyParameters> {
-        if (nodeId == thisNodeId) {
+        if (nodeId == preferencesRepository.getNodeId()) {
             Log.w(TAG, "Attempted to read public keys for the local node")
-            return listOf(thisNodePublicKeyParameters)
+            return listOf(preferencesRepository.getPublicKey())
         }
         val currentTime = System.currentTimeMillis()
         val minValidTime = currentTime - PK_TTL_MS

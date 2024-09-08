@@ -1,8 +1,11 @@
-package xyz.regulad.blueheaven.util;
+package xyz.regulad.blueheaven.network.delegate;
 
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
-import android.bluetooth.*;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothGattCallback;
 import android.content.Context;
 import android.os.Build;
 import android.util.Log;
@@ -11,11 +14,8 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.UUID;
 
 import static android.bluetooth.BluetoothDevice.TRANSPORT_LE;
-import static android.bluetooth.BluetoothGattCharacteristic.PROPERTY_INDICATE;
-import static android.bluetooth.BluetoothGattCharacteristic.PROPERTY_NOTIFY;
 
 // shamelessly lifted from https://github.com/dariuszseweryn/RxAndroidBle/blob/7663a1ab96605dc26eba378a9e51747ad254b229/rxandroidble/src/main/java/com/polidea/rxandroidble2/internal/util/BleConnectionCompat.java
 @SuppressLint({"PrivateApi", "DiscouragedPrivateApi", "MissingPermission"})

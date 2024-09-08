@@ -15,21 +15,22 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
-import xyz.regulad.blueheaven.BlueHeavenViewModel
+import xyz.regulad.blueheaven.BlueHeavenServiceViewModel
 import xyz.regulad.blueheaven.network.NetworkConstants.RUNTIME_REQUIRED_BLUETOOTH_PERMISSIONS
 import xyz.regulad.blueheaven.network.NetworkConstants.canOpenBluetooth
-import xyz.regulad.blueheaven.network.NetworkConstants.hasBluetoothHardwareSupport
-import xyz.regulad.blueheaven.ui.navigation.BlueHeavenRoute
+import xyz.regulad.blueheaven.util.launchAppInfoSettings
+import xyz.regulad.blueheaven.util.navigateWithoutHistory
 import xyz.regulad.blueheaven.util.showDialog
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun BluetoothPermissionPromptScreen(
-    blueHeavenViewModel: BlueHeavenViewModel,
+    blueHeavenServiceViewModel: BlueHeavenServiceViewModel,
     navController: NavController,
     nextScreen: String
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
 
     val permissionState =
         rememberMultiplePermissionsState(
@@ -39,27 +40,20 @@ fun BluetoothPermissionPromptScreen(
                     // send a notification saying expect the Bluetooth Share to crash
                     context.showDialog(
                         title = "BlueHeaven",
-                        message = "You may see a notification saying \"Bluetooth Share has stopped\". This is normal and expected while BlueHeaven is active. Please ignore it.",
+                        message = "You may see a notification saying \"Bluetooth Share has stopped\". This is expected while BlueHeaven is active. Please ignore it.",
                     )
                 }
             }
         )
 
     LaunchedEffect(permissionState.allPermissionsGranted) {
-        val hasHardwareSupport = hasBluetoothHardwareSupport(context)
-
-        if (!hasHardwareSupport) {
-            navController.navigate(BlueHeavenRoute.UNSUPPORTED)
-            return@LaunchedEffect
-        }
-
         val hasBluetoothPermission = canOpenBluetooth(context)
         if (hasBluetoothPermission) {
             // if the user has already granted permission, the service will be null and will start itself
             // otherwise, we will start it here
-            blueHeavenViewModel.getFrontend()?.startBluetooth()
+            blueHeavenServiceViewModel.getFrontend()?.startBluetooth()
 
-            navController.navigate(nextScreen)
+            navController.navigateWithoutHistory(nextScreen)
         }
     }
 
@@ -88,7 +82,7 @@ fun BluetoothPermissionPromptScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "BlueHeaven needs Bluetooth and Location permissions to send & receive messages.",
+            text = "BlueHeaven needs Bluetooth permissions to send & receive messages. On older Android versions, you may be prompted for your location as well.",
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center
         )
@@ -105,15 +99,30 @@ fun BluetoothPermissionPromptScreen(
 
         Button(
             onClick = {
-                permissionState.launchMultiplePermissionRequest()
+                // if the user denied the permissions, we can't show the dialog and need to direct them to go to settings
+                if (permissionState.shouldShowRationale) {
+                    context.showDialog(
+                        title = "BlueHeaven",
+                        message = "Please go to settings and grant the required permissions to continue. If you wouldn't like to do this, you can close the app.",
+                        positiveButtonText = "Go",
+                        onPositiveClick = {
+                            // go to the settings
+                            context.launchAppInfoSettings()
+                        },
+                        negativeButtonText = "Close App",
+                        onNegativeClick = {
+                            activity?.finish()
+                        }
+                    )
+                } else {
+                    permissionState.launchMultiplePermissionRequest()
+                }
             }
         ) {
             Text("Grant Permissions")
         }
 
         Spacer(modifier = Modifier.height(8.dp))
-
-        val activity = (LocalContext.current as? Activity)
 
         OutlinedButton (
             onClick = {

@@ -1,6 +1,5 @@
 package xyz.regulad.blueheaven.ui.navigation.screens
 
-import NodeGraphVisualization
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -13,17 +12,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import xyz.regulad.blueheaven.BlueHeavenViewModel
-import xyz.regulad.blueheaven.network.NetworkConstants.canOpenBluetooth
-import xyz.regulad.blueheaven.network.NetworkConstants.hasBluetoothHardwareSupport
-import xyz.regulad.blueheaven.network.NetworkConstants.toStardardLengthHex
-import xyz.regulad.blueheaven.ui.components.LogcatViewer
+import xyz.regulad.blueheaven.BlueHeavenServiceViewModel
+import xyz.regulad.blueheaven.network.NetworkConstants.toHex
 import xyz.regulad.blueheaven.ui.components.MaxWidthContainer
+import xyz.regulad.blueheaven.ui.components.NodeGraphVisualization
 import xyz.regulad.blueheaven.ui.components.PublicKeyQRCode
-import xyz.regulad.blueheaven.ui.navigation.BlueHeavenRoute
 
 @Composable
 fun KeepScreenOn() {
@@ -38,46 +33,29 @@ fun KeepScreenOn() {
 
 @Composable
 fun DebugScreen(
-    blueHeavenViewModel: BlueHeavenViewModel,
-    navController: NavController
+    blueHeavenServiceViewModel: BlueHeavenServiceViewModel
 ) {
     // screen on for debug
     KeepScreenOn()
 
-    val context = LocalView.current.context
-
-    LaunchedEffect(Unit) {
-        val hasHardwareSupport = hasBluetoothHardwareSupport(context)
-
-        if (!hasHardwareSupport) {
-            navController.navigate(BlueHeavenRoute.UNSUPPORTED)
-            return@LaunchedEffect
-        }
-
-        val hasBluetoothPermission = canOpenBluetooth(context)
-        if (!hasBluetoothPermission) {
-            navController.navigate(BlueHeavenRoute.BT_ONBOARDING)
-        }
-    }
-
     var reachableNodes by remember {
         mutableStateOf(
-            blueHeavenViewModel.getRouter()?.getReachableNodeIDs() ?: emptySet()
+            blueHeavenServiceViewModel.getRouter()?.getReachableNodeIDs() ?: emptySet()
         )
     }
     var directConnections by remember {
         mutableStateOf(
-            blueHeavenViewModel.getRouter()?.getDirectlyConnectedNodeIDs() ?: emptySet()
+            blueHeavenServiceViewModel.getRouter()?.getDirectlyConnectedNodeIDs() ?: emptySet()
         )
     }
 
     val updateNodes = fun() {
-        reachableNodes = blueHeavenViewModel.getRouter()?.getReachableNodeIDs() ?: emptySet()
-        directConnections = blueHeavenViewModel.getRouter()?.getDirectlyConnectedNodeIDs() ?: emptySet()
+        reachableNodes = blueHeavenServiceViewModel.getRouter()?.getReachableNodeIDs() ?: emptySet()
+        directConnections = blueHeavenServiceViewModel.getRouter()?.getDirectlyConnectedNodeIDs() ?: emptySet()
     }
 
-    DisposableEffect(blueHeavenViewModel.getFrontend()) {
-        val frontend = blueHeavenViewModel.getFrontend()
+    DisposableEffect(blueHeavenServiceViewModel.getFrontend()) {
+        val frontend = blueHeavenServiceViewModel.getFrontend()
             ?: return@DisposableEffect onDispose {
                 // nothing to do; frontend doesn't exist yet
             }
@@ -108,10 +86,6 @@ fun DebugScreen(
             fontWeight = FontWeight.Bold
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        LogcatViewer(rows = 20, columns = 80)
-
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
@@ -124,7 +98,7 @@ fun DebugScreen(
 
         // router
         var isServerRunning by remember {
-            mutableStateOf(blueHeavenViewModel.getRouter()?.isServerRunning() ?: true)
+            mutableStateOf(blueHeavenServiceViewModel.getRouter()?.isServerRunning() ?: true)
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -139,18 +113,18 @@ fun DebugScreen(
                 checked = isServerRunning,
                 onCheckedChange = {
                     if (it) {
-                        blueHeavenViewModel.getRouter()?.start()
+                        blueHeavenServiceViewModel.getRouter()?.start()
                     } else {
-                        blueHeavenViewModel.getRouter()?.close()
+                        blueHeavenServiceViewModel.getRouter()?.close()
                     }
-                    isServerRunning = blueHeavenViewModel.getRouter()?.isServerRunning() ?: true
+                    isServerRunning = blueHeavenServiceViewModel.getRouter()?.isServerRunning() ?: true
                 }
             )
         }
 
         // advertiser
         var isAdvertising by remember {
-            mutableStateOf(blueHeavenViewModel.getAdvertiser()?.isAdvertising() ?: true)
+            mutableStateOf(blueHeavenServiceViewModel.getAdvertiser()?.isAdvertising() ?: true)
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -165,11 +139,11 @@ fun DebugScreen(
                 checked = isAdvertising,
                 onCheckedChange = {
                     if (it) {
-                        blueHeavenViewModel.getAdvertiser()?.start()
+                        blueHeavenServiceViewModel.getAdvertiser()?.start()
                     } else {
-                        blueHeavenViewModel.getAdvertiser()?.close()
+                        blueHeavenServiceViewModel.getAdvertiser()?.close()
                     }
-                    isAdvertising = blueHeavenViewModel.getAdvertiser()?.isAdvertising() ?: true
+                    isAdvertising = blueHeavenServiceViewModel.getAdvertiser()?.isAdvertising() ?: true
                 },
             )
         }
@@ -177,7 +151,7 @@ fun DebugScreen(
 
         // scanner
         var isScanning by remember {
-            mutableStateOf(blueHeavenViewModel.getScanner()?.isScanning() ?: true)
+            mutableStateOf(blueHeavenServiceViewModel.getScanner()?.isScanning() ?: true)
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -192,11 +166,11 @@ fun DebugScreen(
                 checked = isScanning,
                 onCheckedChange = {
                     if (it) {
-                        blueHeavenViewModel.getScanner()?.start()
+                        blueHeavenServiceViewModel.getScanner()?.start()
                     } else {
-                        blueHeavenViewModel.getScanner()?.close()
+                        blueHeavenServiceViewModel.getScanner()?.close()
                     }
-                    isScanning = blueHeavenViewModel.getScanner()?.isScanning() ?: true
+                    isScanning = blueHeavenServiceViewModel.getScanner()?.isScanning() ?: true
                 }
             )
         }
@@ -210,12 +184,12 @@ fun DebugScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Node ID: ${blueHeavenViewModel.getPreferences()?.getNodeId()?.toStardardLengthHex() ?: "Loading..."}",
+            text = "Node ID: ${blueHeavenServiceViewModel.getPreferences()?.getNodeId()?.toHex() ?: "Loading..."}",
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        val publicKey = blueHeavenViewModel.getPreferences()?.getPublicKey()
+        val publicKey = blueHeavenServiceViewModel.getPreferences()?.getPublicKey()
 
         if (publicKey != null) {
             Text(
@@ -240,22 +214,23 @@ fun DebugScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         val edges = mutableSetOf<Pair<UInt, UInt>>().apply {
-            val knownExternalRoutes = blueHeavenViewModel.getRouter()?.getRoutes() ?: emptyMap()
+            val knownExternalRoutes = blueHeavenServiceViewModel.getRouter()?.getRoutes() ?: emptyMap()
             knownExternalRoutes.forEach { (from, to) ->
                 to.forEach {
                     add(from to it)
                 }
             }
 
-            val knownDirectConnections = blueHeavenViewModel.getRouter()?.getDirectlyConnectedNodeIDs() ?: emptySet()
+            val knownDirectConnections =
+                blueHeavenServiceViewModel.getRouter()?.getDirectlyConnectedNodeIDs() ?: emptySet()
             knownDirectConnections.forEach {
-                add(blueHeavenViewModel.getPreferences()?.getNodeId()!! to it)
+                add(blueHeavenServiceViewModel.getPreferences()?.getNodeId()!! to it)
             }
         }.toSet()
 
         MaxWidthContainer(600.dp) {
             NodeGraphVisualization(
-                center = blueHeavenViewModel.getPreferences()?.getNodeId() ?: 0u,
+                center = blueHeavenServiceViewModel.getPreferences()?.getNodeId() ?: 0u,
                 innerRing = directConnections,
                 outerRing = reachableNodes,
                 edges = edges,
@@ -286,7 +261,7 @@ fun DebugScreen(
                 // don't use a lazycolumn because the parent view is scrollable
                 reachableNodes.forEach { node ->
                     Text(
-                        text = node.toStardardLengthHex(),
+                        text = node.toHex(),
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
@@ -313,7 +288,7 @@ fun DebugScreen(
                 // don't use a lazycolumn because the parent view is scrollable
                 directConnections.forEach { node ->
                     Text(
-                        text = node.toStardardLengthHex(),
+                        text = node.toHex(),
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }

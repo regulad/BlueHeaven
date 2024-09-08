@@ -11,7 +11,7 @@ import android.os.Looper
 import android.util.Log
 import xyz.regulad.blueheaven.network.BlueHeavenRouter.Companion.MANUFACTURER_ID
 import xyz.regulad.blueheaven.network.BlueHeavenRouter.Companion.SERVICE_UUID
-import xyz.regulad.blueheaven.network.NetworkConstants.toStardardLengthHex
+import xyz.regulad.blueheaven.network.NetworkConstants.toHex
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -26,7 +26,6 @@ class BlueHeavenBLEScanner(
     private val bluetoothManager: BluetoothManager =
         context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val bluetoothAdapter: BluetoothAdapter = bluetoothManager.adapter
-    private val bluetoothLeScanner: BluetoothLeScanner = bluetoothAdapter.bluetoothLeScanner
 
     private val scanLifecycleHandler = Handler(Looper.getMainLooper())
     private val currentScanId = AtomicInteger(0)
@@ -65,7 +64,7 @@ class BlueHeavenBLEScanner(
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val nodeIdBytes = result.scanRecord?.manufacturerSpecificData?.get(MANUFACTURER_ID)
             val nodeId = if (nodeIdBytes != null) ByteBuffer.wrap(nodeIdBytes).int.toUInt() else null
-            Log.d(TAG, "Received an advertisement from ${result.device.address} node id ${nodeId?.toStardardLengthHex()}")
+            Log.d(TAG, "Received an advertisement from ${result.device.address} node id ${nodeId?.toHex()}")
             val device = result.device
             attemptDeviceConnection(device, nodeId)
         }
@@ -96,6 +95,14 @@ class BlueHeavenBLEScanner(
             return
         }
 
+        val bluetoothLeScanner: BluetoothLeScanner? = bluetoothAdapter.bluetoothLeScanner
+
+        if (bluetoothLeScanner == null) {
+            Log.w(TAG, "Bluetooth is off")
+            isScanning.set(false)
+            return
+        }
+
         bluetoothLeScanner.startScan(listOf(SCAN_FILTER), SCAN_SETTINGS, scanCallback)
 
         val thisScanId = currentScanId.incrementAndGet()
@@ -122,6 +129,14 @@ class BlueHeavenBLEScanner(
     fun close() {
         if (!isScanning.compareAndSet(true, false)) {
             Log.w(TAG, "Not scanning")
+            return
+        }
+
+        val bluetoothLeScanner: BluetoothLeScanner? = bluetoothAdapter.bluetoothLeScanner
+
+        if (bluetoothLeScanner == null) {
+            Log.w(TAG, "Bluetooth is off") // our scanning was autostopped
+            isScanning.set(false)
             return
         }
 

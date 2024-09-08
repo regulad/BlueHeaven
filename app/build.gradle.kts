@@ -75,4 +75,7 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
 
     implementation("com.google.accompanist:accompanist-permissions:0.28.0")
+
+    implementation("io.sentry:sentry-android:7.14.0")
+    implementation("io.sentry:sentry-compose-android:7.14.0")
 }

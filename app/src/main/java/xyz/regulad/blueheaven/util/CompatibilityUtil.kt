@@ -1,8 +1,5 @@
 package xyz.regulad.blueheaven.util
 
-import android.app.ActivityManager
-import android.app.Service
-import android.content.Context
 import android.os.Build
 
 fun <T> MutableCollection<T>.versionAgnosticRemoveIf(predicate: (T) -> Boolean) {
@@ -45,12 +42,3 @@ fun <K, V> MutableMap<K, V>.versionAgnosticPutIfAbsent(key: K, value: V): V? {
     }
 }
 
-fun Service.isRunning(): Boolean {
-    val manager = this.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-    for (service in manager.getRunningServices(Integer.MAX_VALUE)) { // as of android O, only returns true for our own services, which is fine
-        if (this::class.java.name == service.service.className) {
-            return true
-        }
-    }
-    return false
-}

@@ -13,16 +13,16 @@ import xyz.regulad.blueheaven.network.routing.BlueHeavenBLEScanner
 import xyz.regulad.blueheaven.storage.BlueHeavenDatabase
 import xyz.regulad.blueheaven.storage.UserPreferencesRepository
 
-class BlueHeavenViewModel(application: Application) : AndroidViewModel(application) {
+class BlueHeavenServiceViewModel(application: Application) : AndroidViewModel(application) {
     private var binder: BlueHeavenService.BlueHeavenBinder? = null
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(className: ComponentName, service: IBinder) {
-            this@BlueHeavenViewModel.binder = service as BlueHeavenService.BlueHeavenBinder
+            this@BlueHeavenServiceViewModel.binder = service as BlueHeavenService.BlueHeavenBinder
         }
 
         override fun onServiceDisconnected(arg0: ComponentName) {
-            this@BlueHeavenViewModel.binder = null
+            this@BlueHeavenServiceViewModel.binder = null
         }
     }
 

@@ -1,6 +1,6 @@
 package xyz.regulad.blueheaven.network.routing
 
-import xyz.regulad.blueheaven.network.NetworkConstants.toStardardLengthHex
+import xyz.regulad.blueheaven.network.NetworkConstants.toHex
 import java.nio.ByteBuffer
 import java.security.SecureRandom
 
@@ -52,6 +52,6 @@ data class OGM(
     }
 
     override fun toString(): String {
-        return "OGM(nodeId=${nodeId.toStardardLengthHex()}, nonce=$nonce)"
+        return "OGM(nodeId=${nodeId.toHex()}, nonce=$nonce)"
     }
 }

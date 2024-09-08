@@ -10,12 +10,12 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import xyz.regulad.blueheaven.util.BleConnectionCompat
 import xyz.regulad.blueheaven.util.isDebuggable
 import xyz.regulad.blueheaven.util.showDialog
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.min
 
 /**
  * A Kotlin-coroutine friendly way to interact with a BluetoothGatt safely and reliably
@@ -385,6 +385,15 @@ class BLEPeripheralView private constructor(
                 }
             }
         }
+
+        override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
+            // evac binder thread asap
+            if (mtuRequested.get()) {
+                callbackCoroutineScope.launch {
+                    requestingMtuChannel.send(Pair(mtu, status))
+                }
+            }
+        }
     }
 
     // all android GATT functions take a lock; this is the lock for all non-autoconnect operations
@@ -392,13 +401,46 @@ class BLEPeripheralView private constructor(
 
     private val expectingDisconnect = AtomicBoolean(false)
 
+    // the mtu is a little special. it can sometime start itself, and in those cases we don't want to push into the channel. so, we set a flag
+    private val mtuRequested = AtomicBoolean(false)
+    private val requestingMtuChannel: Channel<Pair<Int, Int>> =
+        Channel(1) // only one mtu request in flight; status is int
+
     private val connectionStatusReceivedChannel: Channel<BluetoothGatt?> = Channel(1) // only one connection in flight; status is int
+    private val serviceDiscoveryChannel: Channel<Int> =
+        Channel(1) // only one service discovery in flight; status is int
+
     private val writeCharacteristicChannel: Channel<Int> = Channel(1) // only one write in flight; status is int
     private val writeDescriptorChannel: Channel<Int> = Channel(1) // only one write in flight; status is int
-    private val serviceDiscoveryChannel: Channel<Int> = Channel(1) // only one service discovery in flight; status is int
 
     private val readCharacteristicChannel: Channel<ByteArray?> = Channel(1) // only one read in flight; status is int
     private val readDescriptorChannel: Channel<ByteArray?> = Channel(1) // only one read in flight; status is int
+
+    /**
+     * Requests a new MTU from the peripheral. This is a blocking operation. Returns the final MTU size.
+     */
+    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    suspend fun requestMtu(mtu: Int): Int = asyncOperationLock.withLock {
+        mtuRequested.set(true)
+
+        try {
+            val dispatched = gatt.requestMtu(min(mtu, 517)) // max mtu
+
+            if (!dispatched) {
+                throw IllegalStateException("Failed to request MTU")
+            }
+
+            val status = requestingMtuChannel.receive()
+
+            return if (status.second == BluetoothGatt.GATT_SUCCESS) {
+                status.first
+            } else {
+                throw IllegalStateException("Failed to request MTU with status ${status.second}")
+            }
+        } finally {
+            mtuRequested.set(false)
+        }
+    }
 
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     suspend fun readCharacteristic(characteristic: BluetoothGattCharacteristic): ByteArray = asyncOperationLock.withLock {

@@ -1,5 +1,6 @@
 package xyz.regulad.blueheaven
 
+import android.Manifest
 import android.app.*
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
@@ -11,6 +12,7 @@ import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -19,7 +21,7 @@ import xyz.regulad.blueheaven.network.BlueHeavenRouter
 import xyz.regulad.blueheaven.network.INetworkEventCallback
 import xyz.regulad.blueheaven.network.NetworkConstants.PACKET_TRANSMISSION_MAX_RTT_MS
 import xyz.regulad.blueheaven.network.NetworkConstants.canOpenBluetooth
-import xyz.regulad.blueheaven.network.NetworkConstants.toStardardLengthHex
+import xyz.regulad.blueheaven.network.NetworkConstants.toHex
 import xyz.regulad.blueheaven.network.NetworkEventCallback
 import xyz.regulad.blueheaven.network.packet.Packet
 import xyz.regulad.blueheaven.network.packet.UpperPacketTypeByte.isAck
@@ -42,14 +44,43 @@ import kotlin.coroutines.resumeWithException
  * The frontend class for interacting with the BlueHeaven network.
  */
 class BlueHeavenService : Service(), NetworkEventCallback {
-    // ==== service stuff ====
-
     companion object {
         private const val TAG = "BlueHeavenService"
 
         private const val CHANNEL_ID = "BluetoothServiceChannel"
         private const val NOTIFICATION_ID = 1337
+
+        fun needToRequestNotifications(context: Activity): Boolean {
+            return Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && run {
+                val notificationManager = context.getSystemService(NotificationManager::class.java)
+                val canNotify = notificationManager.areNotificationsEnabled()
+
+                if (canNotify) {
+                    return@run false // don't wait
+                }
+
+                // we can't notify the user, check to see if it was explicitly denied (should show rationale)
+                val notificationPermissionWasDenied = ActivityCompat.shouldShowRequestPermissionRationale(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS
+                )
+
+                // if it was denied, don't wait because the user has already made a call. if it wasn't denied, then it wasn't seen and we should wait
+                return@run !notificationPermissionWasDenied
+            }
+        }
+
+        fun readyToLaunchService(context: Activity, preferencesRepository: UserPreferencesRepository): Boolean {
+            // below is android >= 13 only
+            // since this is a foreground service, it would be better if we waited for the user to either deny or grant notification permissions before we launch in the background
+
+            return canOpenBluetooth(context) && preferencesRepository.isKeyStoreInitalized() && !needToRequestNotifications(
+                context
+            )
+        }
     }
+
+    // ==== service stuff ====
 
     private val binder = BlueHeavenBinder()
 
@@ -145,6 +176,9 @@ class BlueHeavenService : Service(), NetworkEventCallback {
         }
     }
 
+    private lateinit var preferences: UserPreferencesRepository
+    private lateinit var database: BlueHeavenDatabase
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -153,17 +187,17 @@ class BlueHeavenService : Service(), NetworkEventCallback {
         bluetoothAdapter = bluetoothManager.adapter
 
         preferences = UserPreferencesRepository(this)
-        database = BlueHeavenDatabase(this, preferences.getNodeId(), preferences.getPublicKey())
+        database = BlueHeavenDatabase(this, preferences)
         router = BlueHeavenRouter(
             context = this,
             thisNodeId = preferences.getNodeId(),
-            thisNodePrivateKey = preferences.getPrivateKey(),
+            preferences = preferences,
             publicKeyProvider = database,
             networkEventCallback = this,
             seenPacketNonces = seenPacketNonces,
             seenOgmNonces = seenOgmNonces,
         )
-        advertiser = BlueHeavenBLEAdvertiser(this, preferences.getNodeId())
+        advertiser = BlueHeavenBLEAdvertiser(this, preferences)
         scanner = BlueHeavenBLEScanner(this, router::handleIncomingAdvertisement)
 
         // register listener for bluetooth state
@@ -179,6 +213,11 @@ class BlueHeavenService : Service(), NetworkEventCallback {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, createNotification())
 
+        if (!preferences.isKeyStoreInitalized()) {
+            Log.d(TAG, "Keystore not initialized, not starting BlueHeaven")
+            throw IllegalStateException("Keystore not initialized but service started")
+        }
+
         if (canOpenBluetooth(this)) {
             startBluetooth()
         }
@@ -186,8 +225,6 @@ class BlueHeavenService : Service(), NetworkEventCallback {
         return START_STICKY
     }
 
-    private lateinit var preferences: UserPreferencesRepository
-    private lateinit var database: BlueHeavenDatabase
     private lateinit var router: BlueHeavenRouter
     private lateinit var advertiser: BlueHeavenBLEAdvertiser
     private lateinit var scanner: BlueHeavenBLEScanner
@@ -268,7 +305,12 @@ class BlueHeavenService : Service(), NetworkEventCallback {
     }
 
     override fun onTopologyChanged() {
-        Log.d(TAG, "Topology has changed! Nodes now reachable from this node: ${router.getReachableNodeIDs().map { it.toStardardLengthHex() }}")
+        Log.d(
+            TAG,
+            "Topology has changed! Nodes now reachable from this node: ${
+                router.getReachableNodeIDs().map { it.toHex() }
+            }"
+        )
         topologyChangeListener.forEach { it() }
     }
 

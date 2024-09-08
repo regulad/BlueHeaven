@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           xmlns:tools="http://schemas.android.com/tools">
+    <!-- Internet for Sentry & Downloading assets dynamically -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <!-- Bluetooth permissions -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
@@ -35,9 +38,6 @@
     <!-- Notifications Android >= 13 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
-    <!-- get our own logs for debug -->
-    <uses-permission android:name="android.permission.READ_LOGS" />
-
     <application
             android:allowBackup="true"
             android:dataExtractionRules="@xml/data_extraction_rules"
@@ -48,6 +48,10 @@
             android:supportsRtl="true"
             android:theme="@style/Theme.BlueHeaven"
             tools:targetApi="31">
+        <meta-data
+                android:name="io.sentry.auto-init"
+                android:value="false"/>
+
         <service
                 android:name=".BlueHeavenService"
                 android:enabled="true"

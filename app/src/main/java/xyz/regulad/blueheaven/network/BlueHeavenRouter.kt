@@ -14,20 +14,20 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
 import xyz.regulad.blueheaven.network.NetworkConstants.PACKET_TRANSMISSION_TIMEOUT_MS
+import xyz.regulad.blueheaven.network.delegate.BLEConst.CCCD_UUID
 import xyz.regulad.blueheaven.network.delegate.BLEPeripheralView
 import xyz.regulad.blueheaven.network.delegate.BLEPeripheralView.Companion.connectGattSafe
+import xyz.regulad.blueheaven.network.delegate.versionAgnosticNotifyCharacteristicChanged
 import xyz.regulad.blueheaven.network.packet.Packet
 import xyz.regulad.blueheaven.network.packet.Packet.Companion.HEADER_SIZE
 import xyz.regulad.blueheaven.network.packet.Packet.Companion.readDestinationNode
 import xyz.regulad.blueheaven.network.packet.UpperPacketTypeByte
 import xyz.regulad.blueheaven.network.routing.OGM
 import xyz.regulad.blueheaven.storage.BlueHeavenDatabase
-import xyz.regulad.blueheaven.util.BLEConst.CCCD_UUID
+import xyz.regulad.blueheaven.storage.UserPreferencesRepository
 import xyz.regulad.blueheaven.util.Barrier
 import xyz.regulad.blueheaven.util.pickRandom
-import xyz.regulad.blueheaven.util.versionAgnosticNotifyCharacteristicChanged
 import java.nio.ByteBuffer
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
@@ -40,7 +40,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
  *
  * @property context The Android application context.
  * @property thisNodeId The unique identifier for this node.
- * @property thisNodePrivateKey The private key for this node, used for packet signing.
+ * @property preferences The repository for managing user preferences.
  * @property publicKeyProvider The database for storing and retrieving public keys.
  * @property networkEventCallback Callback for handling received packets.
  * @property seenPacketNonces Set of seen packet nonces to prevent duplicate processing.
@@ -51,7 +51,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 class BlueHeavenRouter(
     private val context: Context,
     private val thisNodeId: UInt,
-    private val thisNodePrivateKey: Ed25519PrivateKeyParameters,
+    private val preferences: UserPreferencesRepository,
     private val publicKeyProvider: BlueHeavenDatabase,
     private val networkEventCallback: NetworkEventCallback,
     private val seenPacketNonces: MutableSet<ULong>,
@@ -409,7 +409,7 @@ class BlueHeavenRouter(
                         packet.destinationNode,
                         packet.destinationServiceNumber,
                     )
-                    val signedOutgoingPacket = outgoingPacket.createBytes(thisNodePrivateKey)
+                    val signedOutgoingPacket = outgoingPacket.createBytes(preferences.getPrivateKey())
                     transmitPacket(signedOutgoingPacket, outgoingPacket)
                 }
 
@@ -430,7 +430,7 @@ class BlueHeavenRouter(
                 )
             }
 
-            val signedAckPacket = ackPacket.createBytes(thisNodePrivateKey)
+            val signedAckPacket = ackPacket.createBytes(preferences.getPrivateKey())
 
             // we can now asynchronously try to route the ack back to the sender
 
@@ -644,6 +644,14 @@ class BlueHeavenRouter(
                     // wait a little, we won't be locked here
                     Log.d(TAG, "Connected to ${device.address} as a client")
                     delay(100) // wait before discovering services; helps with stability
+
+                    // after that 100 ms, android >= 14 should hopefully have auto fired the MTU upgrade
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        // we need to manually upgrade the MTU
+                        Log.d(TAG, "Requesting MTU upgrade for ${device.address}")
+                        val returnedMtu = view.requestMtu(517)
+                        Log.d(TAG, "MTU upgraded to $returnedMtu for ${device.address} (requested 517)")
+                    }
 
                     Log.d(TAG, "Discovering services for ${device.address}")
                     val services: List<BluetoothGattService>
